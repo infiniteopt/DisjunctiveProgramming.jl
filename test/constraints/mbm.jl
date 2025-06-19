@@ -1,4 +1,6 @@
 #Testing replacement of variables
+#TODO: Test bad inputs throw errors
+#TODO: Test MBM datatype
 using Gurobi
 function test_replace_variables_in_constraint()
     model = Model()
@@ -109,11 +111,11 @@ function test_reformulate_disjunct()
 end
 
 @testset "MBM" begin
-    # test_replace_variables_in_constraint()
-    # test_constraint_to_objective()
-    # test_maximize_M()
-    # test_reformulate_disjunct_constraint()
-    test_reformulate_disjunct()
+    test_replace_variables_in_constraint()
+    test_constraint_to_objective()
+    test_maximize_M()
+    test_reformulate_disjunct_constraint()
+    # test_reformulate_disjunct()
 end
 
 

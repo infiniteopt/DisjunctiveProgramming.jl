@@ -1,7 +1,9 @@
-################################################################################
-#                              MULTIPLE BIG-M VALUE
-################################################################################
+#TODO: Add dead end functions for when something super generic is given.
 
+################################################################################
+#               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
+################################################################################
+#Reformulates the disjunction using multiple big-M values
 function reformulate_disjunction(model::JuMP.AbstractModel, 
     disj::Disjunction,
     method::MBM
@@ -13,26 +15,25 @@ function reformulate_disjunction(model::JuMP.AbstractModel,
     end
     return ref_cons
 end
-
+#Reformualates a disjunct the disjunct of interest 
+#represented by lvref and the other indicators in conlvref
 function _reformulate_disjunct(
     model::JuMP.AbstractModel, 
     ref_cons::Vector{JuMP.AbstractConstraint}, 
     lvref::LogicalVariableRef,
-    conlvref::Vector{LogicalVariableRef}, # was Vector{LogicalVariableRef}, 
+    conlvref::Vector{LogicalVariableRef},
     method::AbstractReformulationMethod
     )
-    bconref = VariableRef[binary_variable(i) for i in conlvref] #binary variable in MINLP
-    !haskey(_indicator_to_constraints(model), lvref) && return #skip if disjunct is empty
-
+    bconref = VariableRef[binary_variable(i) for i in conlvref]
+    !haskey(_indicator_to_constraints(model), lvref) && return
     M = Vector{Float64}(undef, length(conlvref))
-    for (i,d) in enumerate(conlvref) #for each indicator in the list of indicators
+    for (i,d) in enumerate(conlvref) 
         M[i] = maximum(_maximize_M(model, constraint_object(cref), 
         Vector{DisjunctConstraintRef}(_indicator_to_constraints(model)[d]), method) 
         for cref in _indicator_to_constraints(model)[lvref])
     end
     println("M values: ", M)
-    #Goes over each constraint in the disjunct and reformulates it
-    for cref in _indicato   r_to_constraints(model)[lvref]
+    for cref in _indicator_to_constraints(model)[lvref]
         con = JuMP.constraint_object(cref)
         append!(ref_cons, reformulate_disjunct_constraint(model, con, bconref, M, method))
     end
@@ -46,10 +47,7 @@ function reformulate_disjunct_constraint(
     M::Vector{Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
-    # Calculate the sum of all M[i] * bconref[i] terms
     m_sum = sum(M[i] * bconref[i] for i in 1:length(M))
-    
-    # Apply this sum to each row of the vector constraint
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] - m_sum
     )
@@ -64,10 +62,7 @@ function reformulate_disjunct_constraint(
     M::Vector{Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
-    # Calculate the sum of all M[i] * bconref[i] terms
     m_sum = sum(M[i] * bconref[i] for i in 1:length(M))
-    
-    # Apply this sum to each row of the vector constraint
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] + m_sum
     )
@@ -82,10 +77,7 @@ function reformulate_disjunct_constraint(
     M::Vector{Float64},
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
-    # Calculate the sum of all M[i] * bconref[i] terms
     m_sum = sum(M[i] * bconref[i] for i in 1:length(M))
-    
-    # Apply this sum to each row of the vector constraint
     upper_expr = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] + m_sum
     )
@@ -152,10 +144,13 @@ function reformulate_disjunct_constraint(
     return [lower_con, upper_con]
 end
 
+################################################################################
+#                          MULTIPLE BIG-M REFORMULATION
+################################################################################
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::VectorConstraint{T, S, R}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
     return maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.LessThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
@@ -163,8 +158,8 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::VectorConstraint{T, S, R}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
     return maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.GreaterThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
@@ -172,8 +167,8 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::VectorConstraint{T, S, R}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
     return max(
@@ -184,8 +179,8 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T, S}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::ScalarConstraint{T, S}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     return _mini_model(model, objective, constraints, method)
@@ -193,8 +188,8 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T, S}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::ScalarConstraint{T, S}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Interval}
     return max(_mini_model(model, ScalarConstraint(objective.func, MOI.GreaterThan(objective.set.lower)), constraints, method),
@@ -203,8 +198,8 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T, S}, ## Constraint to be turned into Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::ScalarConstraint{T, S}, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
     return max(
@@ -215,8 +210,8 @@ end
 
 function _mini_model(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint, ##Pending Objective Reference
-    constraints::Vector{DisjunctConstraintRef}, ##Partiular Disjunct Constraints
+    objective::ScalarConstraint, 
+    constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 )
     sub_model = Model()
@@ -255,11 +250,14 @@ function _mini_model(
         M = 200
         println("Warning: Optimization did not find a feasible solution. Using default M value of 200.")
     else
-        M = objective_value(sub_model) # Get the value of M from the optimization
+        M = objective_value(sub_model)
     end
     return M
 end
 
+################################################################################
+#                          CONSTRAINT TO OBJECTIVE
+################################################################################
 function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::ScalarConstraint{<:AbstractJuMPScalar, MOI.LessThan{Float64}}, new_vars::Dict{VariableRef, VariableRef})
     @objective(sub_model, Max, - obj.set.upper + replace_variables_in_constraint(obj.func, new_vars))
 end
@@ -267,12 +265,16 @@ function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::ScalarConstr
     @objective(sub_model, Max, - replace_variables_in_constraint(obj.func, new_vars) + obj.set.lower)
 end
 
+
+################################################################################
+#                          REPLACE VARIABLES IN CONSTRAINT
+################################################################################
 function replace_variables_in_constraint(fun::GenericVariableRef, var_map::Dict{VariableRef, VariableRef})
     return var_map[fun]
 end
 
 function replace_variables_in_constraint(fun::AffExpr, var_map::Dict{VariableRef, VariableRef})
-    new_aff = zero(AffExpr)  # Create a new empty AffExpr
+    new_aff = zero(AffExpr)
     for (var, coef) in fun.terms
         new_var = var_map[var]
         add_to_expression!(new_aff, coef, new_var)
@@ -282,9 +284,8 @@ function replace_variables_in_constraint(fun::AffExpr, var_map::Dict{VariableRef
 end
 
 function replace_variables_in_constraint(fun::QuadExpr, var_map::Dict{VariableRef, VariableRef})
-    new_quad = zero(QuadExpr)  # Create a new empty QuadExpr
+    new_quad = zero(QuadExpr)
     for (vars, coef) in fun.terms
-        # Extract the two variables from the UnorderedPair
         add_to_expression!(new_quad, coef, var_map[vars.a], var_map[vars.b])
     end
     new_aff = replace_variables_in_constraint(fun.aff, var_map)
@@ -296,7 +297,6 @@ function replace_variables_in_constraint(fun::Number, var_map::Dict{VariableRef,
     return fun
 end
 
-
 function replace_variables_in_constraint(fun::NonlinearExpr, var_map::Dict{VariableRef, VariableRef})
     new_args = Any[replace_variables_in_constraint(arg, var_map) for arg in fun.args]
     return JuMP.NonlinearExpr(fun.head, new_args)
@@ -305,6 +305,3 @@ end
 function replace_variables_in_constraint(fun::Vector{T}, var_map::Dict{VariableRef, VariableRef}) where T
     return [replace_variables_in_constraint(expr, var_map) for expr in fun]
 end
-
-
-#make for variable ref
