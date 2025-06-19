@@ -368,6 +368,31 @@ struct BigM{T} <: AbstractReformulationMethod
 end
 
 """
+    MBM{T} <: AbstractReformulationMethod
+
+A type for using the multiple big-M reformulation approach for disjunctive constraints.
+
+**Fields**
+- `value::T`: MBM value (default = `1e9`).
+"""
+struct MBM{T,O} <: AbstractReformulationMethod
+    value::T
+    optimizer::O
+    
+    # Constructor with optimizer (required) and val (optional)
+    function MBM(optimizer::O, val::T = 1e9) where {T,O}
+        new{T,O}(val, optimizer)
+    end
+    
+    # Constructor for just optimizer (no val parameter)
+    function MBM(optimizer::O) where {O}
+        new{Float64,O}(1e9, optimizer)
+    end
+end
+
+
+
+"""
     Hull{T} <: AbstractReformulationMethod
 
 A type for using the convex hull reformulation approach for disjunctive 
