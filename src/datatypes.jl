@@ -383,11 +383,6 @@ struct MBM{T,O} <: AbstractReformulationMethod
     function MBM(optimizer::O, val::T = 1e9) where {T,O}
         new{T,O}(val, optimizer)
     end
-    
-    # Constructor for just optimizer (no val parameter)
-    function MBM(optimizer::O) where {O}
-        new{Float64,O}(1e9, optimizer)
-    end
 end
 
 

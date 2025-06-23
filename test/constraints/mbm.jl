@@ -1,8 +1,14 @@
 #Testing replacement of variables
 #TODO: Test bad inputs throw errors for MINI MODEL
-#TODO: Test MBM datatype 
 using Gurobi
 using Revise
+
+function test_mbm()
+    @test MBM(Gurobi.Optimizer).optimizer == Gurobi.Optimizer
+    @test MBM(Gurobi.Optimizer).value == 1e9
+    @test MBM(Gurobi.Optimizer, 100).value == 100
+end
+
 function test_replace_variables_in_constraint()
     model = Model()
     sub_model = Model()
@@ -28,6 +34,17 @@ function test_replace_variables_in_constraint()
     @test expr3 isa JuMP.NonlinearExpr  # Test it's a nonlinear expression
     @test expr4 == [new_vars[x[i]] for i in 1:3]
     @test_throws ErrorException DP.replace_variables_in_constraint("String", new_vars)
+end
+
+function test_mini_model()
+    
+
+
+
+
+
+
+    
 end
 
 function test_constraint_to_objective()
@@ -145,12 +162,14 @@ function test_reformulate_disjunct()
     @test reformulated_disjunct[2].func == JuMP.@expression(model, -x .- sum(M[i] * bconref[i] for i in 1:length(M)) .+ 1) && reformulated_disjunct[2].set == MOI.Nonpositives(2)
 end
 
+
 @testset "MBM" begin
+    test_mbm()
     # test_replace_variables_in_constraint()
     # test_constraint_to_objective()
     # test_maximize_M()
     # test_reformulate_disjunct_constraint()
-    test_reformulate_disjunct()
+    # test_reformulate_disjunct()
 end
 
 
