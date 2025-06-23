@@ -1,12 +1,9 @@
-#Testing replacement of variables
-#TODO: Test bad inputs throw errors for MINI MODEL
-using Gurobi
-using Revise
+using HiGHS
 
 function test_mbm()
-    @test MBM(Gurobi.Optimizer).optimizer == Gurobi.Optimizer
-    @test MBM(Gurobi.Optimizer).value == 1e9
-    @test MBM(Gurobi.Optimizer, 100).value == 100
+    @test MBM(HiGHS.Optimizer).optimizer == HiGHS.Optimizer
+    @test MBM(HiGHS.Optimizer).value == 1e9
+    @test MBM(HiGHS.Optimizer, 100).value == 100
 end
 
 function test_replace_variables_in_constraint()
@@ -36,17 +33,6 @@ function test_replace_variables_in_constraint()
     @test_throws ErrorException DP.replace_variables_in_constraint("String", new_vars)
 end
 
-function test_mini_model()
-    
-
-
-
-
-
-
-    
-end
-
 function test_constraint_to_objective()
     model = Model()
     sub_model = Model()
@@ -65,6 +51,30 @@ function test_constraint_to_objective()
     @test_throws ErrorException DP.constraint_to_objective(sub_model, constraint_object(interval), new_vars)
 end
 
+function test_mini_model()
+    model = GDPModel()
+    @variable(model, 0 <= x, start = 1)
+    @variable(model, 0 <= y)
+    @variable(model, Y[1:3], Logical)
+    @constraint(model, con, 3*-x <= 4, Disjunct(Y[1]))
+    @constraint(model, con2, 3*x + y >= 15, Disjunct(Y[2]))
+    @constraint(model, infeasiblecon, 3*x + y == 15, Disjunct(Y[3]))
+    @disjunction(model, [Y[1], Y[2], Y[3]])
+    @test DP._mini_model(model, constraint_object(con), DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer))== -4
+    set_upper_bound(x, 1)
+    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 15
+    set_integer(y)
+    @constraint(model, con3, y*x == 15, Disjunct(Y[1]))
+    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 15
+    JuMP.fix(y, 5; force=true)
+    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 10
+    delete_lower_bound(x)
+    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer))== 200
+    @test_throws ErrorException DP._mini_model(model, constraint_object(infeasiblecon), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))
+end
+
+
+
 function test_maximize_M()
     model = GDPModel()
     @variable(model, 0 <= x[1:2] <= 50)
@@ -76,14 +86,15 @@ function test_maximize_M()
     @constraint(model, nonpositives, -x in MOI.Nonpositives(2), Disjunct(Y[4]))
     @constraint(model, nonnegatives, x in MOI.Nonnegatives(2), Disjunct(Y[5]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[6]))
-    @test DP._maximize_M(model, constraint_object(lessthan), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer)) == 49
-    @test DP._maximize_M(model, constraint_object(greaterthan), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer)) == 1.0
-    @test DP._maximize_M(model, constraint_object(interval), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[1]]), MBM(Gurobi.Optimizer)) == -1.0
-    @test DP._maximize_M(model, constraint_object(equalto), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[3]]), MBM(Gurobi.Optimizer)) == 0
-    @test DP._maximize_M(model, constraint_object(nonpositives), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer)) == 0
-    @test DP._maximize_M(model, constraint_object(nonnegatives), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer)) == 0
-    @test DP._maximize_M(model, constraint_object(zeros), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer)) == 49
-    @test_throws ErrorException DP._maximize_M(model, "odd", Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(Gurobi.Optimizer))
+    
+    @test DP._maximize_M(model, constraint_object(lessthan), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer)) == 49
+    @test DP._maximize_M(model, constraint_object(greaterthan), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer)) == 1.0
+    @test DP._maximize_M(model, constraint_object(interval), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[1]]), MBM(HiGHS.Optimizer)) == -1.0
+    @test DP._maximize_M(model, constraint_object(equalto), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[3]]), MBM(HiGHS.Optimizer)) == 0
+    @test DP._maximize_M(model, constraint_object(nonpositives), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer)) == 0
+    @test DP._maximize_M(model, constraint_object(nonnegatives), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer)) == 0
+    @test DP._maximize_M(model, constraint_object(zeros), Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer)) == 49
+    @test_throws ErrorException DP._maximize_M(model, "odd", Vector{DisjunctConstraintRef}(DP._indicator_to_constraints(model)[Y[2]]), MBM(HiGHS.Optimizer))
 end
 
 function test_reformulate_disjunct_constraint()
@@ -100,7 +111,7 @@ function test_reformulate_disjunct_constraint()
 
     M = Float64[1,2,3,4,5,6]
     bconref = [binary_variable(Y[i]) for i in 1:6]
-    reformulated_constraints = [reformulate_disjunct_constraint(model, constraint_object(constraints), bconref, M, MBM(Gurobi.Optimizer)) for constraints in [lessthan, greaterthan, interval, equalto, nonpositives, nonnegatives, zeros]]
+    reformulated_constraints = [reformulate_disjunct_constraint(model, constraint_object(constraints), bconref, M, MBM(HiGHS.Optimizer)) for constraints in [lessthan, greaterthan, interval, equalto, nonpositives, nonnegatives, zeros]]
     @test reformulated_constraints[1][1].func == JuMP.@expression(model, x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_constraints[1][1].set == MOI.LessThan(1.0)
     @test reformulated_constraints[2][1].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_constraints[2][1].set == MOI.GreaterThan(1.0)
     @test reformulated_constraints[3][2].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_constraints[3][1].set == MOI.GreaterThan(0.0)
@@ -126,50 +137,44 @@ function test_reformulate_disjunct()
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[6]))
     @disjunction(model, [Y[1], Y[2], Y[3], Y[4], Y[5], Y[6]])
 
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[1], LogicalVariableRef[Y[2], Y[3], Y[4], Y[5], Y[6]], MBM(Gurobi.Optimizer))
-    M = [48.0, -0.0, 48.0, 48.0, -0.0]
-    bconref = [binary_variable(Y[i]) for i in 2:6]
+    bconref = [binary_variable(Y[i]) for i in 1:6]
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[1], LogicalVariableRef[Y[2], Y[3], Y[4], Y[5], Y[6]], MBM(HiGHS.Optimizer))
+    M = [0.0 , 48.0, 0.0, 48.0, 48.0, 0.0]
     @test reformulated_disjunct[1].func == JuMP.@expression(model, x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[1].set == MOI.LessThan(2.0)
     @test reformulated_disjunct[2].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[2].set == MOI.GreaterThan(1.0)
 
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[2], LogicalVariableRef[Y[1], Y[3], Y[4], Y[5], Y[6]], MBM(Gurobi.Optimizer))
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[2], LogicalVariableRef[Y[1], Y[3], Y[4], Y[5], Y[6]], MBM(HiGHS.Optimizer))
     M = [1.0, 0.0, 1.0, 1.0, 1.0, 1.0]
-    bconref = [binary_variable(Y[i]) for i in 1:6]
     @test reformulated_disjunct[2].func == JuMP.@expression(model, x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[2].set == MOI.LessThan(55.0)
     @test reformulated_disjunct[1].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[1].set == MOI.GreaterThan(0.0)
 
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[3], LogicalVariableRef[Y[1], Y[2], Y[4], Y[5], Y[6]], MBM(Gurobi.Optimizer))
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[3], LogicalVariableRef[Y[1], Y[2], Y[4], Y[5], Y[6]], MBM(HiGHS.Optimizer))
     M = [1.0, 49.0, 0.0, 49.0, 49.0, 0.0]
-    bconref = [binary_variable(Y[i]) for i in 1:6]
     @test reformulated_disjunct[2].func == JuMP.@expression(model, x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[2].set == MOI.LessThan(1.0)
     @test reformulated_disjunct[1].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[1].set == MOI.GreaterThan(1.0)
 
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[4], LogicalVariableRef[Y[1], Y[2], Y[3], Y[5], Y[6]], MBM(Gurobi.Optimizer))
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[4], LogicalVariableRef[Y[1], Y[2], Y[3], Y[5], Y[6]], MBM(HiGHS.Optimizer))
     M = [-1.0, -1.0, -1.0, 0.0, -1.0, -1.0]
-    bconref = [binary_variable(Y[i]) for i in 1:6]
     @test reformulated_disjunct[1].func == JuMP.@expression(model, -x .- sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[1].set == MOI.Nonpositives(2)
     
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[5], LogicalVariableRef[Y[1], Y[2], Y[3], Y[4], Y[6]], MBM(Gurobi.Optimizer))
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[5], LogicalVariableRef[Y[1], Y[2], Y[3], Y[4], Y[6]], MBM(HiGHS.Optimizer))
     M = [-1.0, -1.0, -1.0, -1.0, 0.0, -1.0]
-    bconref = [binary_variable(Y[i]) for i in 1:6]
     @test reformulated_disjunct[1].func == JuMP.@expression(model, x .+ sum(M[i] * bconref[i] for i in 1:length(M))) && reformulated_disjunct[1].set == MOI.Nonnegatives(2)
     
-    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[6], LogicalVariableRef[Y[1], Y[2], Y[3], Y[4], Y[5]], MBM(Gurobi.Optimizer))
+    reformulated_disjunct = DP._reformulate_disjunct(model,Vector{JuMP.AbstractConstraint}(),Y[6], LogicalVariableRef[Y[1], Y[2], Y[3], Y[4], Y[5]], MBM(HiGHS.Optimizer))
     M = [49.0, 49.0, 49.0, 49.0, 49.0, 0.0]
-    bconref = [binary_variable(Y[i]) for i in 1:6]
-    println(reformulated_disjunct)
     @test reformulated_disjunct[1].func == JuMP.@expression(model, -x .+ sum(M[i] * bconref[i] for i in 1:length(M)) .+ 1) && reformulated_disjunct[1].set == MOI.Nonnegatives(2)
     @test reformulated_disjunct[2].func == JuMP.@expression(model, -x .- sum(M[i] * bconref[i] for i in 1:length(M)) .+ 1) && reformulated_disjunct[2].set == MOI.Nonpositives(2)
 end
 
-
 @testset "MBM" begin
     test_mbm()
-    # test_replace_variables_in_constraint()
-    # test_constraint_to_objective()
-    # test_maximize_M()
-    # test_reformulate_disjunct_constraint()
-    # test_reformulate_disjunct()
+    test_replace_variables_in_constraint()
+    test_constraint_to_objective()
+    test_mini_model()
+    test_maximize_M()
+    test_reformulate_disjunct_constraint()
+    test_reformulate_disjunct()
 end
 
 

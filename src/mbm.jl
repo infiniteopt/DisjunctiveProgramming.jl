@@ -32,7 +32,6 @@ function _reformulate_disjunct(
         Vector{DisjunctConstraintRef}(_indicator_to_constraints(model)[d]), method) 
         for cref in _indicator_to_constraints(model)[lvref])
     end
-    println("M values: ", M)
     for cref in _indicator_to_constraints(model)[lvref]
         con = JuMP.constraint_object(cref)
         append!(ref_cons, reformulate_disjunct_constraint(model, con, bconref, M, method))
@@ -220,17 +219,14 @@ end
 
 function _mini_model(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint, 
+    objective::ScalarConstraint{T,S}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
-)
+) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub_model = Model()
     new_vars = Dict{VariableRef, VariableRef}()
     for var in all_variables(model)
         new_vars[var] = @variable(sub_model, base_name= "sub_model_$(JuMP.name(var))")
-        if is_binary(var)
-            JuMP.set_binary(new_vars[var])
-        end
         if is_fixed(var)
             JuMP.fix(new_vars[var], fix_value(var); force=true)
         end
@@ -244,7 +240,7 @@ function _mini_model(
             set_lower_bound(new_vars[var], lower_bound(var))
         end
         if has_start_value(var)
-            set_start(new_vars[var], start(var))
+            JuMP.set_start_value(new_vars[var], start_value(var))
         end
     end
     for con in [constraint_object(con) for con in constraints]
@@ -265,14 +261,14 @@ function _mini_model(
     return M
 end
 
-# function _mini_model(
-#     ::JuMP.AbstractModel, 
-#     ::{T,S}, 
-#     ::V, 
-#     ::MBM
-# ) where {T, S}
-#     error("This type of constraints and objective constraint has not been implemented for MBM subproblems")
-# end
+function _mini_model(
+    model::JuMP.AbstractModel, 
+    objective::ScalarConstraint{T,S}, 
+    constraints::Vector{DisjunctConstraintRef}, 
+    method::MBM
+) where {T,S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros, MOI.EqualTo, MOI.Interval}}
+    error("This type of constraints and objective constraint has not been implemented for MBM subproblems")
+end
 
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
