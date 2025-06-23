@@ -252,9 +252,7 @@ function _mini_model(
     set_silent(sub_model)
     optimize!(sub_model)
     if JuMP.termination_status(sub_model) != MOI.OPTIMAL || !JuMP.has_values(sub_model) || JuMP.primal_status(sub_model) != MOI.FEASIBLE_POINT
-        println("Termination status: ", JuMP.termination_status(sub_model))
         M = 200
-        println("Warning: Optimization did not find a feasible solution. Using default M value of 200.")
     else
         M = objective_value(sub_model)
     end

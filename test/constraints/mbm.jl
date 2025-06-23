@@ -69,11 +69,9 @@ function test_mini_model()
     JuMP.fix(y, 5; force=true)
     @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 10
     delete_lower_bound(x)
-    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer))== 200
+    @test DP._mini_model(model, constraint_object(con2), DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer)) == 200
     @test_throws ErrorException DP._mini_model(model, constraint_object(infeasiblecon), DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))
 end
-
-
 
 function test_maximize_M()
     model = GDPModel()
