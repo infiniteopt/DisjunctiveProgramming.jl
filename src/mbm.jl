@@ -147,6 +147,7 @@ end
 ################################################################################
 #                          MULTIPLE BIG-M REFORMULATION
 ################################################################################
+
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::VectorConstraint{T, S, R}, 
@@ -208,6 +209,15 @@ function _maximize_M(
     )
 end
 
+function _maximize_M(
+    ::JuMP.AbstractModel, 
+    ::F, 
+    ::Vector{DisjunctConstraintRef}, 
+    ::MBM
+) where {F}
+    error("This type of constraints and objective constraint has not been implemented for MBM subproblems\nF: $(F)")
+end
+
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::ScalarConstraint, 
@@ -239,7 +249,7 @@ function _mini_model(
     end
     for con in [constraint_object(con) for con in constraints]
         expr = replace_variables_in_constraint(con.func, new_vars)
-        @constraint(sub_model, expr in con.set)
+        @constraint(sub_model, expr * 1.0 in con.set)
     end
     constraint_to_objective(sub_model, objective, new_vars)
     set_optimizer(sub_model, method.optimizer)
@@ -255,6 +265,15 @@ function _mini_model(
     return M
 end
 
+# function _mini_model(
+#     ::JuMP.AbstractModel, 
+#     ::{T,S}, 
+#     ::V, 
+#     ::MBM
+# ) where {T, S}
+#     error("This type of constraints and objective constraint has not been implemented for MBM subproblems")
+# end
+
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
 ################################################################################
@@ -265,10 +284,16 @@ function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::ScalarConstr
     @objective(sub_model, Max, - replace_variables_in_constraint(obj.func, new_vars) + obj.set.lower)
 end
 
+function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::ScalarConstraint, new_vars::Dict{VariableRef, VariableRef})
+    error("This type of constraint is not supported, only greater than and less than constraints are supported with intervals and equalities being converted.")
+end
 
 ################################################################################
 #                          REPLACE VARIABLES IN CONSTRAINT
 ################################################################################
+
+
+
 function replace_variables_in_constraint(fun::GenericVariableRef, var_map::Dict{VariableRef, VariableRef})
     return var_map[fun]
 end
@@ -304,4 +329,8 @@ end
 
 function replace_variables_in_constraint(fun::Vector{T}, var_map::Dict{VariableRef, VariableRef}) where T
     return [replace_variables_in_constraint(expr, var_map) for expr in fun]
+end
+
+function replace_variables_in_constraint(::F, ::S) where {F, S}
+    error("replace_variables_in_constraint not implemented for $(typeof(F)) and $(typeof(S))")
 end
