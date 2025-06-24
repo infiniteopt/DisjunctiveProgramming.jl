@@ -1,5 +1,3 @@
-#TODO: Add dead end functions for when something super generic is given.
-
 ################################################################################
 #               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
 ################################################################################
@@ -10,7 +8,6 @@ function reformulate_disjunction(model::JuMP.AbstractModel,
     )
     ref_cons = Vector{JuMP.AbstractConstraint}() 
     for d in disj.indicators
-        println(typeof(d))
         _reformulate_disjunct(model, ref_cons, d, LogicalVariableRef[x for x in disj.indicators if x != d], method)
     end
     return ref_cons
@@ -146,7 +143,7 @@ end
 ################################################################################
 #                          MULTIPLE BIG-M REFORMULATION
 ################################################################################
-
+#Dispatches over constaint types to reformulate into >= or <= in order to solve the mini-model
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::VectorConstraint{T, S, R}, 
@@ -217,6 +214,7 @@ function _maximize_M(
     error("This type of constraints and objective constraint has not been implemented for MBM subproblems\nF: $(F)")
 end
 
+#Solve a mini-model to find the maximum value of the objective function for M value
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::ScalarConstraint{T,S}, 
@@ -258,7 +256,8 @@ function _mini_model(
     end
     return M
 end
-
+#Catches any constraints that were not reformulated in _maximize_M
+#_mini_model requires objective to be >= or <= in order to run
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::ScalarConstraint{T,S}, 
