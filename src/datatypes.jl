@@ -373,6 +373,7 @@ end
 A type for using the multiple big-M reformulation approach for disjunctive constraints.
 
 **Fields**
+- 'optimizer::O': Optimizer to use when solving mini-models (required).
 - `value::T`: MBM value (default = `1e9`).
 """
 struct MBM{T,O} <: AbstractReformulationMethod
