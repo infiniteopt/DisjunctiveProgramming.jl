@@ -27,7 +27,10 @@ function test_replace_variables_in_constraint()
     @test expr2 == JuMP.@expression(sub_model, new_vars[x[2]]*new_vars[x[1]])
     @test varref == new_vars[x[1]]
     # Test nonlinear expression structure
-    #TODO: Fix expr3 test, for some reason it's not as easy to compare
+    #TODO: Fix expr3 test, JuMP.@expression(model, sin(x[3]) - 0) is not equal to expr3
+    #MBM: Test Failed at c:\Users\LocalAdmin\Code\DisjunctiveProgramming.jl\test\constraints\mbm.jl:32
+    # Expression: expr3 == #= c:\Users\LocalAdmin\Code\DisjunctiveProgramming.jl\test\constraints\mbm.jl:32 =# JuMP.@expression(model, sin(x[3]) - 0)
+    # Evaluated: sin(_[3]) - 0.0 == sin(x[3]) - 0.0
     @test expr3 isa JuMP.NonlinearExpr  # Test it's a nonlinear expression
     @test expr4 == [new_vars[x[i]] for i in 1:3]
     @test_throws ErrorException DP.replace_variables_in_constraint("String", new_vars)
