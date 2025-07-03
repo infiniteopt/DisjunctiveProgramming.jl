@@ -7,17 +7,13 @@ function reformulate_disjunct_constraint(
     method::PSplit
 ) where {T, S <: _MOI.LessThan}
    
-    reform_con = Vector{JuMP.AbstractConstraint}(undef, length(method.partition))
+    reform_con = Vector{JuMP.AbstractConstraint}(undef, length(method.partition) + 1)
     v = [@variable(model) for _ in 1:length(method.partition)]
     
     for i in 1:length(method.partition)
-        reform_con[i] = JuMP.build_constraint(error, build_partitioned_expression(con.func, method.partition[i]) - v[i], MOI.EqualTo(0.0))
-        println(reform_con[i].func)
+        reform_con[i] = JuMP.build_constraint(error, build_partitioned_expression(con.func, method.partition[i]) - v[i], MOI.LessThan(0.0))
     end
-    b = @constraint(model,sum(v[i] for i in 1:length(v)) <= con.set.upper * bvref)
-    @constraint(model, [i=1:length(v)],v[i] >= -8)
-    println(b)
-    # print(model)
+    reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:length(v)) - con.set.upper * bvref, MOI.LessThan(0.0))
     return reform_con
 end
 
