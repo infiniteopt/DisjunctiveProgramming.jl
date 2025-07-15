@@ -1,9 +1,7 @@
-#Extending reformulate_disjunction in order to get all possible variables in the disjuncts
-
-#TODO: TEST Dispatch over Nonlinear expressions
-#TODO: Create function to handle bounds of the auxiliary variables (involves solving max/min problem with just variable constraints)
 #TODO: Detect nonseperable constraints and throw error
 #TODO: Test nonlinear stuff
+#TODO: For Nonlinear functions, the RHS is NOT the constant. Therefore the constant must be located and moved to the RHS or alternative reformulation.
+
 
 function _build_partitioned_expression(
     expr::JuMP.GenericAffExpr,
@@ -63,13 +61,6 @@ function contains_only_partition_variables(
     return true
 end
 
-# function contains_only_partition_variables(
-#     expr::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr},
-#     partition_variables::Vector{JuMP.VariableRef}
-
-#     return all(contains_only_partition_variables(arg, partition_variables) for arg in expr.terms)
-# end
-
 #Helper functions for the nonlinear case.
 function contains_only_partition_variables(
     expr::Union{JuMP.NonlinearExpr},
@@ -84,9 +75,9 @@ function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
     partition_variables::Vector{JuMP.VariableRef}
 )
-    if expr.head == :+
+    if expr.head in (:+, :-)
         return JuMP.NonlinearExpr(
-            :+, 
+            expr.head,
             (_build_partitioned_expression(arg, partition_variables) for arg in expr.args)...
         )
     end
@@ -98,6 +89,69 @@ function _build_partitioned_expression(
     end
 end
 
+function _bound_auxiliary(
+    model::JuMP.AbstractModel,
+    v::JuMP.VariableRef,
+    func::JuMP.GenericAffExpr,
+    method::PSplit
+)   
+    lower_bound = 0
+    upper_bound = 0
+    for (var, coeff) in func.terms
+        if var != v
+            JuMP.is_binary(var) && continue
+            if coeff > 0
+                lower_bound += coeff * variable_bound_info(var)[1]
+                upper_bound += coeff * variable_bound_info(var)[2]
+            else
+                lower_bound += coeff * variable_bound_info(var)[2]
+                upper_bound += coeff * variable_bound_info(var)[1]
+            end
+        end
+    end
+    JuMP.set_lower_bound(v, lower_bound)
+    JuMP.set_upper_bound(v, upper_bound)
+end    
+
+function _bound_auxiliary(
+    model::JuMP.AbstractModel,
+    v::JuMP.VariableRef,
+    func::JuMP.VariableRef,
+    method::PSplit
+) 
+    if func != v
+        lower_bound = variable_bound_info(func)[1]
+        upper_bound = variable_bound_info(func)[2]
+        JuMP.set_lower_bound(v, lower_bound)
+        JuMP.set_upper_bound(v, upper_bound)
+    else
+        JuMP.set_lower_bound(v,0)
+        JuMP.set_upper_bound(v,0)
+    end
+end
+
+function _bound_auxiliary(
+    model::JuMP.AbstractModel,
+    v::JuMP.VariableRef,
+    func::Union{JuMP.NonlinearExpr, JuMP.QuadExpr, Number},
+    method::PSplit
+) 
+
+end
+
+requires_variable_bound_info(method::PSplit) = true
+
+function set_variable_bound_info(vref::JuMP.AbstractVariableRef, ::PSplit)
+    if !has_lower_bound(vref) || !has_upper_bound(vref)
+        error("Variable $vref must have both lower and upper bounds defined when using the PSplit reformulation.")
+    else
+        lb = min(0, lower_bound(vref))
+        ub = max(0, upper_bound(vref))
+    end
+    return lb, ub
+end
+
+
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
@@ -107,10 +161,12 @@ function reformulate_disjunct_constraint(
     p = length(method.partition)
     v = [@variable(model) for _ in 1:p]
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
-
-    reform_con[1:p] = [
-        JuMP.build_constraint(error, _build_partitioned_expression(con.func, method.partition[i]) - v[i], MOI.LessThan(0.0)) for i in 1:p
-    ]
+    for i in 1:p
+        func = _build_partitioned_expression(con.func, method.partition[i])
+        reform_con[i] = JuMP.build_constraint(error, func - v[i], MOI.LessThan(0.0))
+        _bound_auxiliary(model, v[i], func, method)
+        println(reform_con[i])
+    end
     reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - con.set.upper * bvref, MOI.LessThan(0.0))
 
     return reform_con
@@ -126,9 +182,12 @@ function reformulate_disjunct_constraint(
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     v = [@variable(model) for _ in 1:p]
     
-    reform_con[1:p] = [
-        JuMP.build_constraint(error, -_build_partitioned_expression(con.func, method.partition[i]) + v[i], MOI.LessThan(0.0)) for i in 1:p
-    ]
+    for i in 1:p
+        func = -_build_partitioned_expression(con.func, method.partition[i])
+        reform_con[i] = JuMP.build_constraint(error, func + v[i], MOI.LessThan(0.0))
+        _bound_auxiliary(model, v[i], func, method)
+        println(reform_con[i])
+    end
     reform_con[end] = JuMP.build_constraint(error, -sum(v[i] * bvref for i in 1:p) + con.set.lower * bvref, MOI.LessThan(0.0))
     return reform_con
 end
@@ -145,8 +204,11 @@ function reformulate_disjunct_constraint(
     #let [_, 1] be the lower bound and [_, 2] be the upper bound
     v = @variable(model, [1:p, 1:2])
     for i in 1:p
-        reform_con_lt[i] = JuMP.build_constraint(error, _build_partitioned_expression(con.func, method.partition[i]) - v[i,1], MOI.LessThan(0.0))
-        reform_con_gt[i] = JuMP.build_constraint(error, -_build_partitioned_expression(con.func, method.partition[i]) + v[i,2], MOI.LessThan(0.0))
+        func = _build_partitioned_expression(con.func, method.partition[i])
+        reform_con_lt[i] = JuMP.build_constraint(error, func - v[i,1], MOI.LessThan(0.0))
+        reform_con_gt[i] = JuMP.build_constraint(error, -func + v[i,2], MOI.LessThan(0.0))
+        _bound_auxiliary(model, v[i,1], func, method)
+        _bound_auxiliary(model, v[i,2], func, method)
     end
     set_values = _set_values(con.set)
     reform_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] * bvref for i in 1:p) - set_values[2] * bvref, MOI.LessThan(0.0))
@@ -167,10 +229,13 @@ function reformulate_disjunct_constraint(
     v = @variable(model, [1:p,1:d])
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     for i in 1:p
-        new_func = JuMP.@expression(model, [j = 1:d], _build_partitioned_expression(con.func[j], method.partition[i]) - v[i,j])
-        reform_con[i] = JuMP.build_constraint(error, new_func, con.set)
+        func = JuMP.@expression(model, [j = 1:d], _build_partitioned_expression(con.func[j], method.partition[i]) - v[i,j])
+        reform_con[i] = JuMP.build_constraint(error, func, con.set)
+        for j in 1:d
+            _bound_auxiliary(model, v[i,j], func[j], method)
+        end
     end
-    new_func = JuMP.@expression(model,[j = 1:d], bvref*sum(v[i,j] for i in 1:p) + JuMP.constant(con.func[j])*bvref)
+    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) + JuMP.constant(con.func[j])*bvref)
     reform_con[end] = JuMP.build_constraint(error, new_func, con.set)
     return vcat(reform_con)
 end
