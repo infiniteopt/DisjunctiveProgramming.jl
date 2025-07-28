@@ -58,7 +58,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
@@ -73,7 +73,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
@@ -88,7 +88,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
@@ -108,7 +108,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.LessThan}
@@ -120,7 +120,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.GreaterThan}
@@ -132,7 +132,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
@@ -146,7 +146,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::Any,
-    bconref:: Dict{LogicalVariableRef,VariableRef},
+    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) 
@@ -159,37 +159,37 @@ end
 #Dispatches over constaint types to reformulate into >= or <= in order to solve the mini-model
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
-    return maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.LessThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
+    return maximum(_maximize_M(model, JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
 end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
-    return maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.GreaterThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
+    return maximum(_maximize_M(model, JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
 end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::VectorConstraint{T, S, R}, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
     return max(
-        maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.GreaterThan(0.0)), constraints, method) for i in 1:objective.set.dimension),
-        maximum(_maximize_M(model, ScalarConstraint(objective.func[i], MOI.LessThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
+        maximum(_maximize_M(model, JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(0.0)), constraints, method) for i in 1:objective.set.dimension),
+        maximum(_maximize_M(model, JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(0.0)), constraints, method) for i in 1:objective.set.dimension)
     )
 end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T, S}, 
+    objective::JuMP.ScalarConstraint{T, S}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
@@ -198,13 +198,13 @@ end
 
 function _maximize_M(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T, S}, 
+    objective::JuMP.ScalarConstraint{T, S}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
     return max(
-        _mini_model(model, ScalarConstraint(objective.func, MOI.GreaterThan(objective.set.value)), constraints, method),
-        _mini_model(model, ScalarConstraint(objective.func, MOI.LessThan(objective.set.value)), constraints, method)
+        _mini_model(model, JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(objective.set.value)), constraints, method),
+        _mini_model(model, JuMP.ScalarConstraint(objective.func, MOI.LessThan(objective.set.value)), constraints, method)
     )
 end
 
@@ -220,7 +220,7 @@ end
 #Solve a mini-model to find the maximum value of the objective function for M value
 function _mini_model(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T,S}, 
+    objective::JuMP.ScalarConstraint{T,S}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
@@ -263,7 +263,7 @@ end
 #_mini_model requires objective to be >= or <= in order to run
 function _mini_model(
     model::JuMP.AbstractModel, 
-    objective::ScalarConstraint{T,S}, 
+    objective::JuMP.ScalarConstraint{T,S}, 
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T,S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros, MOI.EqualTo, MOI.Interval}}
