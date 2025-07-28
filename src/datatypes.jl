@@ -368,21 +368,19 @@ struct BigM{T} <: AbstractReformulationMethod
 end
 
 """
-    MBM{T} <: AbstractReformulationMethod
+    MBM{O} <: AbstractReformulationMethod
 
 A type for using the multiple big-M reformulation approach for disjunctive constraints.
 
 **Fields**
 - 'optimizer::O': Optimizer to use when solving mini-models (required).
-- `value::T`: MBM value (default = `1e9`).
 """
-struct MBM{T,O} <: AbstractReformulationMethod
-    value::T
+struct MBM{O} <: AbstractReformulationMethod
     optimizer::O
     
-    # Constructor with optimizer (required) and val (optional)
-    function MBM(optimizer::O, val::T = 1e9) where {T,O}
-        new{T,O}(val, optimizer)
+    # Constructor with optimizer (required)
+    function MBM(optimizer::O) where {O}
+        new{O}(optimizer)
     end
 end
 
