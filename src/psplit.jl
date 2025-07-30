@@ -1,6 +1,5 @@
-#TODO: Detect nonseperable constraints and throw error
-#TODO: Make NL work for all other constraints (LessThan works at the moment.)
-
+#TODO: If the constraint is Nonlinear -> Throw a warning
+#TODO: Make NL work for all other constraints (LessThan and GreaterThan works at the moment.)
 function _build_partitioned_expression(
     expr::JuMP.GenericAffExpr,
     partition_variables::Vector{JuMP.VariableRef},
@@ -19,7 +18,6 @@ function _build_partitioned_expression(
     partition_variables::Vector{JuMP.VariableRef},
     ::JuMP.ScalarConstraint
 )
-    
     new_quadexpr = QuadExpr(0.0, Dict{JuMP.VariableRef,Float64}())
     for var in partition_variables
         add_to_expression!(new_quadexpr, get(expr.terms, JuMP.UnorderedPair(var, var), 0.0), var,var) 
@@ -89,6 +87,24 @@ function _build_partitioned_expression(
     end
     return new_func, rhs
 end
+
+# function _build_partitioned_expression(
+#     expr::JuMP.NonlinearExpr,
+#     partition_variables::Vector{JuMP.VariableRef},
+#     con::JuMP.ScalarConstraint{T,S}
+# ) where {T, S <: _MOI.GreaterThan}
+#     if expr.head in (:+, :-)
+#         rhs = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
+#         if expr.head == :+
+#             rhs = -rhs
+#         end
+#         new_func = _nonlinear_recursion(expr, partition_variables, con) + rhs
+#     else
+#         new_func = _nonlinear_recursion(expr, partition_variables, con)
+#         rhs = 0.0
+#     end
+#     return -new_func,-rhs
+# end
 
 function _nonlinear_recursion(
     expr::Union{JuMP.GenericAffExpr, JuMP.VariableRef, JuMP.GenericQuadExpr, Number},
@@ -199,7 +215,7 @@ function reformulate_disjunct_constraint(
     reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - (con.set.upper + rhs) * bvref, MOI.LessThan(0.0))
     return reform_con
 end
-#TODO: Update with NL
+#DONE WITH NL
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
@@ -212,11 +228,11 @@ function reformulate_disjunct_constraint(
     _, rhs = _build_partitioned_expression(con.func, method.partition[p], con)
     
     for i in 1:p
-        func, _ = -_build_partitioned_expression(con.func, method.partition[i], con)
+        func, _ = (x -> (-x[1], x[2]))(_build_partitioned_expression(con.func, method.partition[i], con))
         reform_con[i] = JuMP.build_constraint(error, func + v[i], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i], func, method)
     end
-    reform_con[end] = JuMP.build_constraint(error, -sum(v[i] * bvref for i in 1:p) + (con.set.lower - rhs) * bvref, MOI.LessThan(0.0))
+    reform_con[end] = JuMP.build_constraint(error, -sum(v[i] * bvref for i in 1:p) + (con.set.lower + rhs) * bvref, MOI.LessThan(0.0))
     return reform_con
 end
 #TODO: Update with NL
