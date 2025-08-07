@@ -150,7 +150,7 @@ function reformulate_disjunct_constraint(
     ::Dict{LogicalVariableRef,Float64}, 
     ::MBM
 ) where {F}
-    error("Constraint type $(typeof(con)) is not supported by the Multiple Big-M reformulation method.")
+    error("Constraint type $(typeof(F)) is not supported by the Multiple Big-M reformulation method.")
 end
 
 ################################################################################
@@ -227,22 +227,7 @@ function _mini_model(
     sub_model = JuMP.Model()
     new_vars = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for var in JuMP.all_variables(model)
-        new_vars[var] = JuMP.@variable(sub_model, base_name= "sub_model_$(JuMP.name(var))")
-        if JuMP.is_fixed(var)
-            JuMP.fix(new_vars[var], JuMP.fix_value(var); force=true)
-        end
-        if JuMP.is_integer(var)
-            JuMP.set_integer(new_vars[var])
-        end
-        if JuMP.has_upper_bound(var)
-            JuMP.set_upper_bound(new_vars[var], JuMP.upper_bound(var))
-        end
-        if JuMP.has_lower_bound(var)
-            JuMP.set_lower_bound(new_vars[var], JuMP.lower_bound(var))
-        end
-        if JuMP.has_start_value(var)
-            JuMP.set_start_value(new_vars[var], JuMP.start_value(var))
-        end
+        new_vars[var] = _copy_variable(sub_model, var)
     end
     for con in [JuMP.constraint_object(con) for con in constraints]
         expr = replace_variables_in_constraint(con.func, new_vars)
