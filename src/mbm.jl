@@ -58,7 +58,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
@@ -73,7 +73,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
@@ -88,7 +88,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
@@ -108,7 +108,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.LessThan}
@@ -120,7 +120,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.GreaterThan}
@@ -132,7 +132,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
+    bconref:: Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef},
     M::Dict{LogicalVariableRef,Float64},
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
@@ -144,12 +144,12 @@ function reformulate_disjunct_constraint(
     return [lower_con, upper_con]
 end
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel,
-    con::Any,
-    bconref:: Dict{LogicalVariableRef,JuMP.VariableRef},
-    M::Dict{LogicalVariableRef,Float64},
-    method::MBM
-) 
+    ::JuMP.AbstractModel, 
+    ::F, 
+    ::Dict{LogicalVariableRef,<:JuMP.AbstractVariableRef}, 
+    ::Dict{LogicalVariableRef,Float64}, 
+    ::MBM
+) where {F}
     error("Constraint type $(typeof(con)) is not supported by the Multiple Big-M reformulation method.")
 end
 
@@ -225,7 +225,7 @@ function _mini_model(
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub_model = JuMP.Model()
-    new_vars = Dict{JuMP.VariableRef, JuMP.VariableRef}()
+    new_vars = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for var in JuMP.all_variables(model)
         new_vars[var] = JuMP.@variable(sub_model, base_name= "sub_model_$(JuMP.name(var))")
         if JuMP.is_fixed(var)
@@ -273,14 +273,14 @@ end
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
 ################################################################################
-function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{Float64}}, new_vars::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{Float64}}, new_vars::Dict{V,K}) where {V <: JuMP.AbstractVariableRef, K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, - obj.set.upper + replace_variables_in_constraint(obj.func, new_vars))
 end
-function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{Float64}}, new_vars::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{Float64}}, new_vars::Dict{V,K}) where {V <: JuMP.AbstractVariableRef, K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, - replace_variables_in_constraint(obj.func, new_vars) + obj.set.lower)
 end
 
-function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint, new_vars::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function constraint_to_objective(sub_model::JuMP.AbstractModel,obj::JuMP.ScalarConstraint, new_vars::Dict{V,K}) where {V, K}
     error("This type of constraint is not supported, only greater than and less than constraints are supported with intervals and equalities being converted.")
 end
 
@@ -290,11 +290,11 @@ end
 
 
 
-function replace_variables_in_constraint(fun::JuMP.GenericVariableRef, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function replace_variables_in_constraint(fun:: JuMP.AbstractVariableRef, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     return var_map[fun]
 end
 
-function replace_variables_in_constraint(fun::JuMP.AffExpr, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function replace_variables_in_constraint(fun::JuMP.AffExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_aff = JuMP.zero(JuMP.AffExpr)
     for (var, coef) in fun.terms
         new_var = var_map[var]
@@ -304,7 +304,7 @@ function replace_variables_in_constraint(fun::JuMP.AffExpr, var_map::Dict{JuMP.V
     return new_aff
 end
 
-function replace_variables_in_constraint(fun::JuMP.QuadExpr, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function replace_variables_in_constraint(fun::JuMP.QuadExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_quad = JuMP.zero(JuMP.QuadExpr)
     for (vars, coef) in fun.terms
         JuMP.add_to_expression!(new_quad, coef, var_map[vars.a], var_map[vars.b])
@@ -314,16 +314,16 @@ function replace_variables_in_constraint(fun::JuMP.QuadExpr, var_map::Dict{JuMP.
     return new_quad
 end
 
-function replace_variables_in_constraint(fun::Number, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function replace_variables_in_constraint(fun::Number, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     return fun
 end
 
-function replace_variables_in_constraint(fun::JuMP.NonlinearExpr, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef})
+function replace_variables_in_constraint(fun::JuMP.NonlinearExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_args = Any[replace_variables_in_constraint(arg, var_map) for arg in fun.args]
     return JuMP.NonlinearExpr(fun.head, new_args)
 end
 
-function replace_variables_in_constraint(fun::Vector{T}, var_map::Dict{JuMP.VariableRef, JuMP.VariableRef}) where T
+function replace_variables_in_constraint(fun::Vector{T}, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}) where T
     return [replace_variables_in_constraint(expr, var_map) for expr in fun]
 end
 
