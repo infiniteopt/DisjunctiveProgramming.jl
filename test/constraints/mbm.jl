@@ -148,9 +148,7 @@ function test_reformulate_disjunction()
     @constraint(model, lessthan, x <= 2, Disjunct(Y[1]))
     @constraint(model, greaterthan, x >= 1, Disjunct(Y[1]))
     @constraint(model, interval, 0 <= x <= 55, Disjunct(Y[2]))
-    
     disj = disjunction(model, [Y[1], Y[2]])
-    
     ref_cons = reformulate_disjunction(model, constraint_object(disj), MBM(HiGHS.Optimizer))
     @test ref_cons[1].func == JuMP.@expression(model, x - 53 * binary_variable(Y[2])) && ref_cons[1].set == MOI.LessThan(2.0)
     @test ref_cons[2].func == JuMP.@expression(model, x + 53 * binary_variable(Y[2])) && ref_cons[2].set == MOI.GreaterThan(1.0)
