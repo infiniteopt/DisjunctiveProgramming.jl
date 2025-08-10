@@ -1,5 +1,4 @@
 #TODO: If the constraint is Nonlinear -> Throw a warning
-#TODO: Make NL work for all other constraints (LessThan and GreaterThan works at the moment.)
 function _build_partitioned_expression(
     expr::JuMP.GenericAffExpr,
     partition_variables::Vector{JuMP.VariableRef},
@@ -46,6 +45,17 @@ function _build_partitioned_expression(
     )
     return expr, 0
 end
+
+function contains_only_partition_variables(
+    expr::Union{JuMP.GenericAffExpr,JuMP.GenericQuadExpr},
+    partition_variables::Vector{JuMP.VariableRef}
+)
+    for (var, _) in expr.terms
+        var in partition_variables || return false
+    end
+    return true
+end
+
 
 function contains_only_partition_variables(
     expr::JuMP.VariableRef,
@@ -228,14 +238,15 @@ function reformulate_disjunct_constraint(
     _, rhs = _build_partitioned_expression(con.func, method.partition[p], con)
     
     for i in 1:p
-        func, _ = (x -> (-x[1], x[2]))(_build_partitioned_expression(con.func, method.partition[i], con))
-        reform_con[i] = JuMP.build_constraint(error, func + v[i], MOI.LessThan(0.0))
-        _bound_auxiliary(model, v[i], func, method)
+        func, _ = _build_partitioned_expression(con.func, method.partition[i], con)
+        reform_con[i] = JuMP.build_constraint(error, -func + v[i], MOI.LessThan(0.0))
+        _bound_auxiliary(model, v[i], -func, method)
     end
     reform_con[end] = JuMP.build_constraint(error, -sum(v[i] * bvref for i in 1:p) + (con.set.lower + rhs) * bvref, MOI.LessThan(0.0))
     return reform_con
 end
-#TODO: Update with NL
+
+#Works with NL
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
@@ -245,7 +256,7 @@ function reformulate_disjunct_constraint(
     p = length(method.partition)
     reform_con_lt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     reform_con_gt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
-    #let [_, 1] be the lower bound and [_, 2] be the upper bound
+    #let [_, 1] be the upper bound and [_, 2] be the lower bound
     _, rhs = _build_partitioned_expression(con.func, method.partition[p], con) 
     v = @variable(model, [1:p, 1:2])
     for i in 1:p
@@ -253,16 +264,14 @@ function reformulate_disjunct_constraint(
         reform_con_lt[i] = JuMP.build_constraint(error, func - v[i,1], MOI.LessThan(0.0))
         reform_con_gt[i] = JuMP.build_constraint(error, -func + v[i,2], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i,1], func, method)
-        _bound_auxiliary(model, v[i,2], func, method)
+        _bound_auxiliary(model, v[i,2], -func, method)
     end
     set_values = _set_values(con.set)
-    reform_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] * bvref for i in 1:p) - (set_values[2] - rhs) * bvref, MOI.LessThan(0.0))
-    reform_con_gt[end] = JuMP.build_constraint(error, -sum(v[i,2] * bvref for i in 1:p) + (set_values[1] - rhs) * bvref, MOI.LessThan(0.0))
+    reform_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] * bvref for i in 1:p) - (set_values[2] + rhs) * bvref, MOI.LessThan(0.0))
+    reform_con_gt[end] = JuMP.build_constraint(error, -sum(v[i,2] * bvref for i in 1:p) + (set_values[1] + rhs) * bvref, MOI.LessThan(0.0))
     #TODO: how do i avoid the vcat?
     return vcat(reform_con_lt, reform_con_gt)
 end
-#TODO: how do i avoid the vcat?
-#TODO: Update with NL
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
@@ -282,5 +291,75 @@ function reformulate_disjunct_constraint(
     end
     new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) + JuMP.constant(con.func[j])*bvref)
     reform_con[end] = JuMP.build_constraint(error, new_func, con.set)
+    #TODO: how do i avoid the vcat?
     return vcat(reform_con)
+end
+
+
+################################################################################
+#                          FALLBACK WARNING DISPATCHES
+################################################################################
+
+# Generic fallback for _build_partitioned_expression
+function _build_partitioned_expression(
+    expr::Any,
+    ::Vector{JuMP.VariableRef},
+    ::Any
+)
+    error("PSplit: _build_partitioned_expression not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
+end
+
+# Generic fallback for contains_only_partition_variables
+function contains_only_partition_variables(
+    expr::Any,
+    ::Vector{JuMP.VariableRef}
+)
+    error("PSplit: contains_only_partition_variables not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
+end
+
+# Generic fallback for _nonlinear_recursion
+function _nonlinear_recursion(
+    expr::Any,
+    ::Vector{JuMP.VariableRef},
+    ::JuMP.ScalarConstraint
+)
+    error("PSplit: _nonlinear_recursion not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
+end
+
+# Generic fallback for _bound_auxiliary
+function _bound_auxiliary(
+    ::JuMP.AbstractModel,
+    v::JuMP.VariableRef,
+    func::Any,
+    ::PSplit
+)
+    @warn "PSplit: _bound_auxiliary not implemented for function type $(typeof(func)). Auxiliary variable bounds may be suboptimal. Supported types: GenericAffExpr, VariableRef."
+    # Set default bounds to avoid errors
+    JuMP.set_lower_bound(v, -1e6)
+    JuMP.set_upper_bound(v, 1e6)
+end
+
+# Generic fallback for reformulate_disjunct_constraint (scalar)
+function reformulate_disjunct_constraint(
+    ::JuMP.AbstractModel,
+    con::JuMP.ScalarConstraint,
+    ::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    ::PSplit
+)
+    error("PSplit: reformulate_disjunct_constraint not implemented for constraint set type $(typeof(con.set)). Supported types: LessThan, GreaterThan, EqualTo, Interval.")
+end
+
+# Generic fallback for reformulate_disjunct_constraint (vector)
+function reformulate_disjunct_constraint(
+    ::JuMP.AbstractModel,
+    con::JuMP.VectorConstraint,
+    ::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    ::PSplit
+)
+    error("PSplit: reformulate_disjunct_constraint not implemented for vector constraint set type $(typeof(con.set)). Supported types: Zeros, Nonpositives, Nonnegatives.")
+end
+
+# Generic fallback for _set_values
+function _set_values(set::Any)
+    error("PSplit: _set_values not implemented for constraint set type $(typeof(set)). Supported types: EqualTo, Interval.")
 end
