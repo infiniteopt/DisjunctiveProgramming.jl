@@ -2,7 +2,7 @@
 function _build_partitioned_expression(
     expr::JuMP.GenericAffExpr,
     partition_variables::Vector{JuMP.VariableRef},
-    ::JuMP.ScalarConstraint
+    ::Any
 )
     new_affexpr = AffExpr(0.0, Dict{JuMP.VariableRef,Float64}())
     for var in partition_variables
@@ -15,7 +15,7 @@ end
 function _build_partitioned_expression(
     expr::JuMP.GenericQuadExpr,
     partition_variables::Vector{JuMP.VariableRef},
-    ::JuMP.ScalarConstraint
+    ::Any
 )
     new_quadexpr = QuadExpr(0.0, Dict{JuMP.VariableRef,Float64}())
     for var in partition_variables
@@ -29,7 +29,7 @@ end
 function _build_partitioned_expression(
     expr::JuMP.VariableRef,
     partition_variables::Vector{JuMP.VariableRef},
-    ::JuMP.ScalarConstraint
+    ::Any
 )
     if expr in partition_variables
         return expr, 0
@@ -41,9 +41,28 @@ end
 function _build_partitioned_expression(
     expr::Number,
     partition_variables::Vector{JuMP.VariableRef},
-    ::JuMP.ScalarConstraint
-    )
+    ::Any
+)
     return expr, 0
+end
+
+
+function _build_partitioned_expression(
+    expr::JuMP.NonlinearExpr,
+    partition_variables::Vector{JuMP.VariableRef},
+    con::JuMP.ScalarConstraint
+)
+    if expr.head in (:+, :-)
+        rhs = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
+        if expr.head == :+
+            rhs = -rhs
+        end
+        new_func = _nonlinear_recursion(expr, partition_variables, con) + rhs
+    else
+        new_func = _nonlinear_recursion(expr, partition_variables, con)
+        rhs = 0.0
+    end
+    return new_func, rhs
 end
 
 function contains_only_partition_variables(
@@ -80,41 +99,7 @@ function contains_only_partition_variables(
 end
 
 
-function _build_partitioned_expression(
-    expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef},
-    con::JuMP.ScalarConstraint
-)
-    if expr.head in (:+, :-)
-        rhs = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
-        if expr.head == :+
-            rhs = -rhs
-        end
-        new_func = _nonlinear_recursion(expr, partition_variables, con) + rhs
-    else
-        new_func = _nonlinear_recursion(expr, partition_variables, con)
-        rhs = 0.0
-    end
-    return new_func, rhs
-end
 
-# function _build_partitioned_expression(
-#     expr::JuMP.NonlinearExpr,
-#     partition_variables::Vector{JuMP.VariableRef},
-#     con::JuMP.ScalarConstraint{T,S}
-# ) where {T, S <: _MOI.GreaterThan}
-#     if expr.head in (:+, :-)
-#         rhs = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
-#         if expr.head == :+
-#             rhs = -rhs
-#         end
-#         new_func = _nonlinear_recursion(expr, partition_variables, con) + rhs
-#     else
-#         new_func = _nonlinear_recursion(expr, partition_variables, con)
-#         rhs = 0.0
-#     end
-#     return -new_func,-rhs
-# end
 
 function _nonlinear_recursion(
     expr::Union{JuMP.GenericAffExpr, JuMP.VariableRef, JuMP.GenericQuadExpr, Number},
