@@ -45,7 +45,7 @@ function _build_partitioned_expression(
     return expr, 0
 end
 
-
+#TODO: Right now, if the function is made negative via a bracket (eg -(x[3]^2 + y[3]), everything in the bracket disappears)
 function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
     partition_variables::Vector{JuMP.VariableRef}
@@ -265,9 +265,9 @@ function reformulate_disjunct_constraint(
     constants = Vector{Number}(undef, d)
     for i in 1:p
         partitioned_expressions = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
-        func = JuMP.@expression(model, [j = 1:d], partitioned_expressions[j][1] - v[i,j])
+        func = JuMP.@expression(model, [j = 1:d], partitioned_expressions[j][1])
         constants .= [partitioned_expressions[j][2] for j in 1:d]
-        reform_con[i] = JuMP.build_constraint(error, func, _MOI.Nonpositives(d))
+        reform_con[i] = JuMP.build_constraint(error, func - v[i,:], _MOI.Nonpositives(d))
         for j in 1:d
             _bound_auxiliary(model, v[i,j], func[j], method)
         end
@@ -291,14 +291,15 @@ function reformulate_disjunct_constraint(
     for i in 1:p
         #I should be subtracting the constant here.
         partitioned_expressions = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
-        func = JuMP.@expression(model, [j = 1:d], -partitioned_expressions[j][1] - v[i,j])
-        constants .= [partitioned_expressions[j][2] for j in 1:d]
-        reform_con[i] = JuMP.build_constraint(error, func, _MOI.Nonpositives(d))
+        func = JuMP.@expression(model, [j = 1:d], -partitioned_expressions[j][1])
+        constants .= [-partitioned_expressions[j][2] for j in 1:d]
+        reform_con[i] = JuMP.build_constraint(error, func - v[i,:], _MOI.Nonpositives(d))
+        println("func: ", func)
         for j in 1:d
-            _bound_auxiliary(model, v[i,j], -func[j], method)
+            _bound_auxiliary(model, v[i,j], func[j], method)
         end
     end
-    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) - constants[j]*bvref)
+    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) + constants[j]*bvref)
     reform_con[end] = JuMP.build_constraint(error, new_func, _MOI.Nonpositives(d))
     #TODO: how do i avoid the vcat?
     return vcat(reform_con)
