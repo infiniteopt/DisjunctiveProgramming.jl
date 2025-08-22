@@ -60,7 +60,7 @@ function _build_partitioned_expression(
         new_func = _nonlinear_recursion(expr, partition_variables)
         constant = 0.0
     end
-    return new_func, constant
+    return new_func, -constant
 end
 
 function contains_only_partition_variables(
@@ -193,14 +193,15 @@ function reformulate_disjunct_constraint(
 ) where {T, S <: _MOI.LessThan}
     p = length(method.partition)
     v = [@variable(model) for _ in 1:p]
-    _, rhs = _build_partitioned_expression(con.func, method.partition[p])
+    _, constant = _build_partitioned_expression(con.func, method.partition[p])
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     for i in 1:p
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
         reform_con[i] = JuMP.build_constraint(error, func - v[i], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i], func, method)
+        println("reform_con[$i]: ", reform_con[i])
     end
-    reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - (con.set.upper + rhs) * bvref, MOI.LessThan(0.0))
+    reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - (con.set.upper - constant) * bvref, MOI.LessThan(0.0))
     return reform_con
 end
 #DONE WITH NL
@@ -213,14 +214,14 @@ function reformulate_disjunct_constraint(
     p = length(method.partition)
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     v = [@variable(model) for _ in 1:p]
-    _, rhs = _build_partitioned_expression(con.func, method.partition[p])
+    _, constant = _build_partitioned_expression(con.func, method.partition[p])
     
     for i in 1:p
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
-        reform_con[i] = JuMP.build_constraint(error, -func + v[i], MOI.LessThan(0.0))
+        reform_con[i] = JuMP.build_constraint(error, -func - v[i], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i], -func, method)
     end
-    reform_con[end] = JuMP.build_constraint(error, -sum(v[i] * bvref for i in 1:p) + (con.set.lower + rhs) * bvref, MOI.LessThan(0.0))
+    reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - (-con.set.lower + constant) * bvref, MOI.LessThan(0.0))
     return reform_con
 end
 
@@ -235,18 +236,18 @@ function reformulate_disjunct_constraint(
     reform_con_lt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     reform_con_gt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     #let [_, 1] be the upper bound and [_, 2] be the lower bound
-    _, rhs = _build_partitioned_expression(con.func, method.partition[p]) 
+    _, constant = _build_partitioned_expression(con.func, method.partition[p]) 
     v = @variable(model, [1:p, 1:2])
     for i in 1:p
         func, _= _build_partitioned_expression(con.func, method.partition[i])
         reform_con_lt[i] = JuMP.build_constraint(error, func - v[i,1], MOI.LessThan(0.0))
-        reform_con_gt[i] = JuMP.build_constraint(error, -func + v[i,2], MOI.LessThan(0.0))
+        reform_con_gt[i] = JuMP.build_constraint(error, -func - v[i,2], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i,1], func, method)
         _bound_auxiliary(model, v[i,2], -func, method)
     end
     set_values = _set_values(con.set)
-    reform_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] * bvref for i in 1:p) - (set_values[2] + rhs) * bvref, MOI.LessThan(0.0))
-    reform_con_gt[end] = JuMP.build_constraint(error, -sum(v[i,2] * bvref for i in 1:p) + (set_values[1] + rhs) * bvref, MOI.LessThan(0.0))
+    reform_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] * bvref for i in 1:p) - (set_values[2] - constant) * bvref, MOI.LessThan(0.0))
+    reform_con_gt[end] = JuMP.build_constraint(error, sum(v[i,2] * bvref for i in 1:p) - (-set_values[1] + constant) * bvref, MOI.LessThan(0.0))
     #TODO: how do i avoid the vcat?
     return vcat(reform_con_lt, reform_con_gt)
 end
@@ -263,19 +264,15 @@ function reformulate_disjunct_constraint(
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     constants = Vector{Number}(undef, d)
     for i in 1:p
-        #I should be subtracting the constant here.
         partitioned_expressions = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
         func = JuMP.@expression(model, [j = 1:d], partitioned_expressions[j][1] - v[i,j])
-        constants .= [-partitioned_expressions[j][2] for j in 1:d]
+        constants .= [partitioned_expressions[j][2] for j in 1:d]
         reform_con[i] = JuMP.build_constraint(error, func, _MOI.Nonpositives(d))
         for j in 1:d
             _bound_auxiliary(model, v[i,j], func[j], method)
         end
-        println("Reformulated constraint $i: ", reform_con[i])
-        println("Constants: ", constants)
     end
-    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) - constants[j]*bvref)
-    println("New function: ", new_func)
+    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) + constants[j]*bvref)
     reform_con[end] = JuMP.build_constraint(error, new_func, _MOI.Nonpositives(d))
     return vcat(reform_con)
 end
@@ -294,14 +291,14 @@ function reformulate_disjunct_constraint(
     for i in 1:p
         #I should be subtracting the constant here.
         partitioned_expressions = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
-        func = JuMP.@expression(model, [j = 1:d], partitioned_expressions[j][1] - v[i,j])
-        constants .= [-partitioned_expressions[j][2] for j in 1:d]
-        reform_con[i] = JuMP.build_constraint(error, -func, _MOI.Nonpositives(d))
+        func = JuMP.@expression(model, [j = 1:d], -partitioned_expressions[j][1] - v[i,j])
+        constants .= [partitioned_expressions[j][2] for j in 1:d]
+        reform_con[i] = JuMP.build_constraint(error, func, _MOI.Nonpositives(d))
         for j in 1:d
             _bound_auxiliary(model, v[i,j], -func[j], method)
         end
     end
-    new_func = JuMP.@expression(model,[j = 1:d], -sum(v[i,j] * bvref for i in 1:p) + constants[j]*bvref)
+    new_func = JuMP.@expression(model,[j = 1:d], sum(v[i,j] * bvref for i in 1:p) - constants[j]*bvref)
     reform_con[end] = JuMP.build_constraint(error, new_func, _MOI.Nonpositives(d))
     #TODO: how do i avoid the vcat?
     return vcat(reform_con)
