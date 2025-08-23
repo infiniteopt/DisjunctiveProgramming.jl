@@ -17,8 +17,7 @@ Utility functions: 2 tests
 =#
 
 function test_build_partitioned_expression()
-    model = JuMP.Model()
-    @variable(model, x[1:4])
+    @variable(JuMP.Model(), x[1:4])
     partition_variables = [x[1], x[4]]
     # Build each type of expression
     nonlinear = exp(x[1])
@@ -28,7 +27,7 @@ function test_build_partitioned_expression()
     num = 4.0
     
     con = JuMP.build_constraint(error, nonlinear, MOI.EqualTo(0.0))
-    result_nl, rhs_nl = DP._build_partitioned_expression(nonlinear, partition_variables, con)
+    result_nl, rhs_nl = DP._build_partitioned_expression(nonlinear, partition_variables)
     #Why can't I test with an equivalent expression?
     #Example output
     #P-Split Reformulation: Test Failed at c:\Users\LocalAdmin\Code\DisjunctiveProgramming.jl\test\constraints\psplit.jl:33
@@ -40,21 +39,24 @@ function test_build_partitioned_expression()
     # @test JuMP.value(result_nl, 1) == exp(x[1])
     @test rhs_nl == 0
     
-    result_aff, rhs_aff = DP._build_partitioned_expression(affexpr, partition_variables, nothing)
+    result_aff, rhs_aff = DP._build_partitioned_expression(affexpr, partition_variables)
     @test result_aff == 1.0 * x[1]
     @test rhs_aff == 0
     
-    result_quad, rhs_quad = DP._build_partitioned_expression(quadexpr, partition_variables, nothing)
+    result_quad, rhs_quad = DP._build_partitioned_expression(quadexpr, partition_variables)
     @test result_quad == x[1] * x[1] + 2.0 * x[1] * x[1]
     @test rhs_quad == 0
     
-    @test DP._build_partitioned_expression(var, partition_variables, nothing) == (0, 0)
-    @test DP._build_partitioned_expression(num, partition_variables, nothing) == (num, 0)
+    @test DP._build_partitioned_expression(var, partition_variables) == (0, 0)
+    @test DP._build_partitioned_expression(num, partition_variables) == (num, 0)
 
-    @test_throws ErrorException DP._build_partitioned_expression(JuMP.NonlinearExpr(:+, [affexpr, quadexpr]), partition_variables, nothing)
+    @test_throws ErrorException DP._build_partitioned_expression(JuMP.NonlinearExpr(:+, [affexpr, quadexpr]), partition_variables)
 end
 
 function _test_contains_only_partition_variables()
+    @variable(JuMP.Model(), x[1:4])
+    
+    
     #TODO: GenericAffExpr, GenericQuadExpr, GenericNonlinearExpr, VariableRef, Number, ErrorException
 end
 

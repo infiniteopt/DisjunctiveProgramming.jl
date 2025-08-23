@@ -45,7 +45,7 @@ function _build_partitioned_expression(
     return expr, 0
 end
 
-#TODO: Right now, if the function is made negative via a bracket (eg -(x[3]^2 + y[3]), everything in the bracket disappears)
+#TODO:if the function is made negative via a bracket (eg -(x[3]^2 + y[3]), everything in the bracket disappears)
 function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
     partition_variables::Vector{JuMP.VariableRef}
@@ -72,7 +72,6 @@ function contains_only_partition_variables(
     end
     return true
 end
-
 
 function contains_only_partition_variables(
     expr::JuMP.VariableRef,
@@ -199,7 +198,6 @@ function reformulate_disjunct_constraint(
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
         reform_con[i] = JuMP.build_constraint(error, func - v[i], MOI.LessThan(0.0))
         _bound_auxiliary(model, v[i], func, method)
-        println("reform_con[$i]: ", reform_con[i])
     end
     reform_con[end] = JuMP.build_constraint(error, sum(v[i] * bvref for i in 1:p) - (con.set.upper - constant) * bvref, MOI.LessThan(0.0))
     return reform_con
@@ -294,7 +292,6 @@ function reformulate_disjunct_constraint(
         func = JuMP.@expression(model, [j = 1:d], -partitioned_expressions[j][1])
         constants .= [-partitioned_expressions[j][2] for j in 1:d]
         reform_con[i] = JuMP.build_constraint(error, func - v[i,:], _MOI.Nonpositives(d))
-        println("func: ", func)
         for j in 1:d
             _bound_auxiliary(model, v[i,j], func[j], method)
         end
