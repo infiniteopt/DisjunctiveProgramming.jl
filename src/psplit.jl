@@ -192,7 +192,7 @@ function reformulate_disjunct_constraint(
     method::PSplit
 ) where {T, S <: _MOI.LessThan}
     p = length(method.partition)
-    v = [@variable(model) for _ in 1:p]
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     for i in 1:p
@@ -212,7 +212,7 @@ function reformulate_disjunct_constraint(
 ) where {T, S <: _MOI.GreaterThan}
     p = length(method.partition)
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
-    v = [@variable(model) for _ in 1:p]
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
     
     for i in 1:p
@@ -236,7 +236,7 @@ function reformulate_disjunct_constraint(
     reform_con_gt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     #let [_, 1] be the upper bound and [_, 2] be the lower bound
     _, constant = _build_partitioned_expression(con.func, method.partition[p]) 
-    v = @variable(model, [1:p, 1:2])
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:2]
     for i in 1:p
         func, _= _build_partitioned_expression(con.func, method.partition[i])
         reform_con_lt[i] = JuMP.build_constraint(error, func - v[i,1], MOI.LessThan(0.0))
@@ -259,7 +259,7 @@ function reformulate_disjunct_constraint(
 ) where {T, S <: Union{_MOI.Nonpositives}, R}
     p = length(method.partition)
     d = con.set.dimension
-    v = @variable(model, [1:p,1:d])
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     constants = Vector{Number}(undef, d)
     for i in 1:p
@@ -284,7 +284,7 @@ function reformulate_disjunct_constraint(
 ) where {T, S <: Union{_MOI.Nonnegatives}, R}
     p = length(method.partition)
     d = con.set.dimension
-    v = @variable(model, [1:p,1:d])
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     constants = Vector{Number}(undef, d)
     for i in 1:p
@@ -313,7 +313,7 @@ function reformulate_disjunct_constraint(
     d = con.set.dimension
     reform_con_np = Vector{JuMP.AbstractConstraint}(undef, p + 1)  # nonpositive (≤ 0)
     reform_con_nn = Vector{JuMP.AbstractConstraint}(undef, p + 1)  # nonnegative (≥ 0)
-    v = @variable(model, [1:p,1:d,1:2])  # [i,j,1] for ≤, [i,j,2] for ≥
+    v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)_$(k)") for i in 1:p, j in 1:d, k in 1:2]
     constants = Vector{Number}(undef, d)
     for i in 1:p
         partitioned_expressions = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
@@ -322,8 +322,8 @@ function reformulate_disjunct_constraint(
         func = JuMP.@expression(model, [j = 1:d], partitioned_expressions[j][1])        
         constants .= [partitioned_expressions[j][2] for j in 1:d]
         
-        reform_con_np[i] = JuMP.build_constraint(error, func - v[i,:], _MOI.Nonpositives(d))
-        reform_con_nn[i] = JuMP.build_constraint(error, -func - v[i,:], _MOI.Nonpositives(d))
+        reform_con_np[i] = JuMP.build_constraint(error, func - v[i,:,1], _MOI.Nonpositives(d))
+        reform_con_nn[i] = JuMP.build_constraint(error, -func - v[i,:,2], _MOI.Nonpositives(d))
         
         for j in 1:d
             _bound_auxiliary(model, v[i,j,1], func[j], method)
