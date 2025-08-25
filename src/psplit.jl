@@ -169,6 +169,7 @@ function _bound_auxiliary(
     func::Union{JuMP.NonlinearExpr, JuMP.QuadExpr, Number},
     method::PSplit
 ) 
+#Leaving it to be bounded indirectly by the variables in the partition
 end
 
 requires_variable_bound_info(method::PSplit) = true

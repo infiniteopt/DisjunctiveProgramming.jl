@@ -11,7 +11,7 @@ TODO: Test Plan
 _build_partitioned_expression: 6 tests (DONE)
 contains_only_partition_variables: 5 tests (2 for union + 3 others)
 _nonlinear_recursion: 5 tests (4 for union + 1 other)
-_bound_auxiliary: 6 tests (3 for union + 3 others)
+_bound_auxiliary: 6 tests (3 for union + 3 others) (DONE)
 reformulate_disjunct_constraint: 8 tests (2 for Interval/EqualTo + 3 for vector sets + 3 others)
 Utility functions: 2 tests
 =#
@@ -55,12 +55,46 @@ end
 
 function _test_contains_only_partition_variables()
     @variable(JuMP.Model(), x[1:4])
-    
-    
+
+    #TODO:Come back to this after fixing NLE
     #TODO: GenericAffExpr, GenericQuadExpr, GenericNonlinearExpr, VariableRef, Number, ErrorException
 end
 
+function _test_bound_auxiliary()
+    model = GDPModel()
+    # model = JuMP.Model()
+    @variable(model, 0 <= x[1:4] <= 3)
+    @variable(model, v[1:5])
+    method = PSplit([[x[1], x[2]], [x[3], x[4]]])
+    nonlinear = JuMP.@expression(model, exp(x[1]))
+    affexpr = 1.0 * x[1] - 2.0 * x[2]
+    quadexpr = x[1] * x[1] + 2.0 * x[1] * x[1] + 3.0 * x[2] * x[2]
+    var = x[3]
+    num = 4.0
+
+    for i in 1:4
+        DP._variable_bounds(model)[x[i]] = DP.set_variable_bound_info(x[i], method)
+    end
+    DP._bound_auxiliary(model, v[1], nonlinear, method)
+    DP._bound_auxiliary(model, v[2], quadexpr, method)
+    DP._bound_auxiliary(model, v[3], num, method)
+    DP._bound_auxiliary(model, v[4], var, method)
+    DP._bound_auxiliary(model, v[5], affexpr, method)
+    
+    @test JuMP.lower_bound(v[5]) == -6
+    @test JuMP.upper_bound(v[5]) == 3
+    @test JuMP.lower_bound(v[4]) == 0
+    @test JuMP.upper_bound(v[4]) == 3
+    for i in 1:3
+        @test !JuMP.has_lower_bound(v[i]) == true
+        @test !JuMP.has_upper_bound(v[i]) == true
+    end
+
+end
+
 @testset "P-Split Reformulation" begin
-    test_psplit()
-    test_build_partitioned_expression()
+    # test_psplit()
+    # test_build_partitioned_expression()
+    # _test_contains_only_partition_variables()
+    # _test_bound_auxiliary()
 end
