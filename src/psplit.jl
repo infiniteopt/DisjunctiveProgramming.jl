@@ -45,22 +45,25 @@ function _build_partitioned_expression(
     return expr, 0
 end
 
-#TODO:if the function is made negative via a bracket (eg -(x[3]^2 + y[3]), everything in the bracket disappears)
+#TODO:if the constant is on the LHS and RHS, then what's returned does not negate the overall constant.
+#TODO: store constants as you go, then return the sum of them
 function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef}
+    partition_variables::Vector{JuMP.VariableRef},
 )
+    constants = Vector{Float64}()
     if expr.head in (:+, :-)
         constant = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
         if expr.head == :+
             constant = -constant
         end
-        new_func = _nonlinear_recursion(expr, partition_variables) + constant
+        new_func, constants = _nonlinear_recursion(expr, partition_variables, constants)
     else
-        new_func = _nonlinear_recursion(expr, partition_variables)
+        new_func, constants = _nonlinear_recursion(expr, partition_variables, constants)
         constant = 0.0
     end
-    return new_func, -constant
+    
+    return new_func, -sum(constants)
 end
 
 function contains_only_partition_variables(
@@ -97,27 +100,33 @@ end
 
 function _nonlinear_recursion(
     expr::Union{JuMP.GenericAffExpr, JuMP.VariableRef, JuMP.GenericQuadExpr, Number},
-    partition_variables::Vector{JuMP.VariableRef}
+    partition_variables::Vector{JuMP.VariableRef},
+    constants::Vector{Float64}
 )
-    new_func, _ = _build_partitioned_expression(expr, partition_variables)
-    return new_func
+    new_func, constant = _build_partitioned_expression(expr, partition_variables)
+    return new_func, constants
 end
 
 
 function _nonlinear_recursion(
     expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef}
+    partition_variables::Vector{JuMP.VariableRef},
+    constants::Vector{Float64}
     )
     if expr.head in (:+, :-)
+        constant = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
+        if expr.head == :+
+            constant = -constant
+        end
         return JuMP.NonlinearExpr(
             expr.head,
-            (_nonlinear_recursion(arg, partition_variables) for arg in expr.args)...
-        )
+            (_nonlinear_recursion(arg, partition_variables, constants)[1] for arg in expr.args)...
+        ) + constant, push!(constants, -constant)
     end
-    if contains_only_partition_variables(expr, partition_variables)
-        return expr
+    if contains_only_partition_variables(expr, partition_variables) || expr.head == :*
+        return expr, constants
     else
-        return 0
+        return 0, constants
     end
 end
 
