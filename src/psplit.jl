@@ -35,6 +35,7 @@ function _build_partitioned_expression(
         return expr, 0
     else
         return 0, 0
+    #This does not work for things like exp(x) as exp(0) = 1
     end
 end
 
@@ -45,89 +46,29 @@ function _build_partitioned_expression(
     return expr, 0
 end
 
-#TODO:if the constant is on the LHS and RHS, then what's returned does not negate the overall constant.
-#TODO: store constants as you go, then return the sum of them
 function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef},
+    partition_variables::Vector{JuMP.VariableRef}
 )
-    constants = Vector{Float64}()
+    new_args = Vector{Any}(undef, length(expr.args))
+    for i in 1:length(expr.args)
+        new_args[i] = _build_partitioned_expression(expr.args[i], partition_variables)[1]
+        if expr.head in (:exp, :cos, :cosh, :log, :log10, :log2) && new_args[i] == 0
+                return 0, 0
+        end
+        if expr.head == :/ && new_args[2] == 0
+            return 0, 0
+        end
+    end
+    constant = 0
     if expr.head in (:+, :-)
-        constant = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
-        if expr.head == :+
+        constant = get(filter(x -> isa(x, Number), new_args), 1, 0.0)
+        if expr.head == :-
             constant = -constant
         end
-        new_func, constants = _nonlinear_recursion(expr, partition_variables, constants)
-    else
-        new_func, constants = _nonlinear_recursion(expr, partition_variables, constants)
-        constant = 0.0
     end
-    
-    return new_func, -sum(constants)
-end
 
-function contains_only_partition_variables(
-    expr::Union{JuMP.GenericAffExpr,JuMP.GenericQuadExpr},
-    partition_variables::Vector{JuMP.VariableRef}
-)
-    for (var, _) in expr.terms
-        var in partition_variables || return false
-    end
-    return true
-end
-
-function contains_only_partition_variables(
-    expr::JuMP.VariableRef,
-    partition_variables::Vector{JuMP.VariableRef}
-)
-    return expr in partition_variables
-end
-
-function contains_only_partition_variables(
-    expr::Number,
-    partition_variables::Vector{JuMP.VariableRef}
-)
-    return true
-end
-
-#Helper functions for the nonlinear case.
-function contains_only_partition_variables(
-    expr::Union{JuMP.NonlinearExpr}, 
-    partition_variables::Vector{JuMP.VariableRef}
-)
-    return all(contains_only_partition_variables(arg, partition_variables) for arg in expr.args)
-end
-
-function _nonlinear_recursion(
-    expr::Union{JuMP.GenericAffExpr, JuMP.VariableRef, JuMP.GenericQuadExpr, Number},
-    partition_variables::Vector{JuMP.VariableRef},
-    constants::Vector{Float64}
-)
-    new_func, constant = _build_partitioned_expression(expr, partition_variables)
-    return new_func, constants
-end
-
-
-function _nonlinear_recursion(
-    expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef},
-    constants::Vector{Float64}
-    )
-    if expr.head in (:+, :-)
-        constant = get(filter(x -> isa(x, Number), expr.args), 1, 0.0)
-        if expr.head == :+
-            constant = -constant
-        end
-        return JuMP.NonlinearExpr(
-            expr.head,
-            (_nonlinear_recursion(arg, partition_variables, constants)[1] for arg in expr.args)...
-        ) + constant, push!(constants, -constant)
-    end
-    if contains_only_partition_variables(expr, partition_variables) || expr.head == :*
-        return expr, constants
-    else
-        return 0, constants
-    end
+    return JuMP.NonlinearExpr(expr.head, new_args...) - constant, constant
 end
 
 
