@@ -1,12 +1,9 @@
-#TODO: If the constraint is Nonlinear -> Throw a warning
-#TODO: Fix vectors in general
-
 function _build_partitioned_expression(
-    expr::JuMP.GenericAffExpr,
-    partition_variables::Vector{JuMP.VariableRef}
+    expr::JuMP.AffExpr,
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
 )
     constant = JuMP.constant(expr)
-    new_affexpr = AffExpr(0.0, Dict{JuMP.VariableRef,Float64}())
+    new_affexpr = AffExpr(0.0, Dict{JuMP.AbstractVariableRef,Float64}())
     for var in partition_variables
         add_to_expression!(new_affexpr, coefficient(expr, var), var) 
     end
@@ -14,10 +11,10 @@ function _build_partitioned_expression(
 end
 
 function _build_partitioned_expression(
-    expr::JuMP.GenericQuadExpr,
-    partition_variables::Vector{JuMP.VariableRef}
+    expr::JuMP.QuadExpr,
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
 )
-    new_quadexpr = QuadExpr(0.0, Dict{JuMP.VariableRef,Float64}())
+    new_quadexpr = QuadExpr(0.0, Dict{JuMP.AbstractVariableRef,Float64}())
     constant = JuMP.constant(expr)
     for var in partition_variables
         add_to_expression!(new_quadexpr, get(expr.terms, JuMP.UnorderedPair(var, var), 0.0), var,var) 
@@ -28,37 +25,39 @@ function _build_partitioned_expression(
 end
 
 function _build_partitioned_expression(
-    expr::JuMP.VariableRef,
-    partition_variables::Vector{JuMP.VariableRef}
+    expr::JuMP.AbstractVariableRef,
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
 )
     if expr in partition_variables
         return expr, 0
     else
         return 0, 0
-    #This does not work for things like exp(x) as exp(0) = 1
     end
 end
 
 function _build_partitioned_expression(
     expr::Number,
-    partition_variables::Vector{JuMP.VariableRef}
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
 )
     return expr, 0
 end
 
 function _build_partitioned_expression(
     expr::JuMP.NonlinearExpr,
-    partition_variables::Vector{JuMP.VariableRef}
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
 )
+    @warn "$expr is nonlinear and reformulation not be equivalent. 
+    Partitioned functions must be convex additively seperarable with one constant" maxlog = 1
+
     new_args = Vector{Any}(undef, length(expr.args))
     for i in 1:length(expr.args)
         new_args[i] = _build_partitioned_expression(expr.args[i], partition_variables)[1]
         if expr.head in (:exp, :cos, :cosh, :log, :log10, :log2) && new_args[i] == 0
                 return 0, 0
         end
-        if expr.head == :/ && new_args[2] == 0
-            return 0, 0
-        end
+    end
+    if expr.head == :/ && new_args[2] == 0
+        return 0, 0
     end
     constant = 0
     if expr.head in (:+, :-)
@@ -67,15 +66,14 @@ function _build_partitioned_expression(
             constant = -constant
         end
     end
-
     return JuMP.NonlinearExpr(expr.head, new_args...) - constant, constant
 end
 
 
 function _bound_auxiliary(
     model::JuMP.AbstractModel,
-    v::JuMP.VariableRef,
-    func::JuMP.GenericAffExpr,
+    v::JuMP.AbstractVariableRef,
+    func::JuMP.AffExpr,
     method::PSplit
 )   
     lower_bound = 0
@@ -98,10 +96,10 @@ end
 
 function _bound_auxiliary(
     model::JuMP.AbstractModel,
-    v::JuMP.VariableRef,
-    func::JuMP.VariableRef,
+    v::JuMP.AbstractVariableRef,
+    func::JuMP.AbstractVariableRef,
     method::PSplit
-) 
+)   
     if func != v
         lower_bound = variable_bound_info(func)[1]
         upper_bound = variable_bound_info(func)[2]
@@ -115,11 +113,11 @@ end
 
 function _bound_auxiliary(
     model::JuMP.AbstractModel,
-    v::JuMP.VariableRef,
+    v::JuMP.AbstractVariableRef,
     func::Union{JuMP.NonlinearExpr, JuMP.QuadExpr, Number},
     method::PSplit
-) 
-#Leaving it to be bounded indirectly by the variables in the partition
+)   
+    @warn "Unable to calculate explicit bounds for auxiliary variables inside of nonlinear or quadratic expressions." maxlog = 1
 end
 
 requires_variable_bound_info(method::PSplit) = true
@@ -138,7 +136,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
 ) where {T, S <: _MOI.LessThan}
     p = length(method.partition)
@@ -157,7 +155,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
 ) where {T, S <: _MOI.GreaterThan}
     p = length(method.partition)
@@ -178,7 +176,7 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
 ) where {T, S <: Union{_MOI.Interval, _MOI.EqualTo}}
     p = length(method.partition)
@@ -204,9 +202,9 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
-) where {T, S <: Union{_MOI.Nonpositives}, R}
+) where {T, S <: _MOI.Nonpositives, R}
     p = length(method.partition)
     d = con.set.dimension
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
@@ -229,9 +227,9 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
-) where {T, S <: Union{_MOI.Nonnegatives}, R}
+) where {T, S <: _MOI.Nonnegatives, R}
     p = length(method.partition)
     d = con.set.dimension
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
@@ -256,9 +254,9 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     method::PSplit
-) where {T, S <: Union{_MOI.Zeros}, R}
+) where {T, S <: _MOI.Zeros, R}
     p = length(method.partition)
     d = con.set.dimension
     reform_con_np = Vector{JuMP.AbstractConstraint}(undef, p + 1)  # nonpositive (≤ 0)
@@ -296,61 +294,27 @@ end
 # Generic fallback for _build_partitioned_expression
 function _build_partitioned_expression(
     expr::Any,
-    ::Vector{JuMP.VariableRef}
+    ::Vector{<:JuMP.AbstractVariableRef}
 )
     error("PSplit: _build_partitioned_expression not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
-end
-
-# Generic fallback for contains_only_partition_variables
-function contains_only_partition_variables(
-    expr::Any,
-    ::Vector{JuMP.VariableRef}
-)
-    error("PSplit: contains_only_partition_variables not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
-end
-
-# Generic fallback for _nonlinear_recursion
-function _nonlinear_recursion(
-    expr::Any,
-    ::Vector{JuMP.VariableRef}
-)
-    error("PSplit: _nonlinear_recursion not implemented for expression type $(typeof(expr)). Supported types: GenericAffExpr, GenericQuadExpr, VariableRef, Number, NonlinearExpr.")
 end
 
 # Generic fallback for _bound_auxiliary
 function _bound_auxiliary(
     ::JuMP.AbstractModel,
-    v::JuMP.VariableRef,
+    v::JuMP.AbstractVariableRef,
     func::Any,
     ::PSplit
 )
-    @warn "PSplit: _bound_auxiliary not implemented for function type $(typeof(func)). Auxiliary variable bounds may be suboptimal. Supported types: GenericAffExpr, VariableRef."
-    # Set default bounds to avoid errors
-    JuMP.set_lower_bound(v, -1e6)
-    JuMP.set_upper_bound(v, 1e6)
-end
-
-# Generic fallback for reformulate_disjunct_constraint (scalar)
-function reformulate_disjunct_constraint(
-    ::JuMP.AbstractModel,
-    con::Any,
-    ::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
-    ::PSplit
-)
-    error("PSplit: reformulate_disjunct_constraint not implemented for constraint set type $(typeof(con.set)). Supported types: LessThan, GreaterThan, EqualTo, Interval.")
+    error("PSplit: _bound_auxiliary not implemented for function type $(typeof(func)). Auxiliary variable bounds may be suboptimal. Supported types: GenericAffExpr, VariableRef.")
 end
 
 # Generic fallback for reformulate_disjunct_constraint (vector)
 function reformulate_disjunct_constraint(
     ::JuMP.AbstractModel,
     con::Any,
-    ::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    ::Union{JuMP.AbstractVariableRef, JuMP.AffExpr},
     ::PSplit
 )
     error("PSplit: reformulate_disjunct_constraint not implemented for vector constraint set type $(typeof(con)). Supported types: VectorConstraint of _MOI.Nonnegatives, _MOI.Nonpositives, _MOI.Zeros.")
-end
-
-# Generic fallback for _set_values
-function _set_values(set::Any)
-    error("PSplit: _set_values not implemented for constraint set type $(typeof(set)). Supported types: EqualTo, Interval.")
 end

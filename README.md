@@ -172,6 +172,10 @@ The following reformulation methods are currently supported:
 
 3. [Indicator](https://jump.dev/JuMP.jl/stable/manual/constraints/#Indicator-constraints): This method reformulates each disjunct constraint into an indicator constraint with the Boolean reformulation counterpart of the Logical variable used to define the disjunct constraint.
 
+4. [P-Split](https://arxiv.org/abs/2202.05198): This method reformulates each disjunct constraint into P constraints, each with a partitioned group defined by the user. This method requires that terms in the constraint be convex additively seperable with respect to each variable. The `PSplit` struct is created with the following required arguments:
+
+    - `partition`: Partition of the variables to be split. All variables must be in exactly one partition. (e.g., The variables `x[1:4]` can be partitioned into two groups ` partition = [[x[1], x[2]], [x[3], x[4]]]`)
+
 ## Release Notes
 
 Prior to `v0.4.0`, the package did not leverage the JuMP extension capabilities and was not as robust. For these earlier releases, refer to [Perez, Joshi, and Grossmann, 2023](https://arxiv.org/abs/2304.10492v1) and the following [JuliaCon 2022 Talk](https://www.youtube.com/watch?v=AMIrgTTfUkI).

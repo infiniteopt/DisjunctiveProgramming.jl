@@ -1,72 +1,53 @@
-function test_psplit()
-    model = JuMP.Model()
+function _test_psplit()
+    model = GDPModel()
     @variable(model, x[1:4])
     method = PSplit([[x[1], x[2]], [x[3], x[4]]])
     @test method.partition == [[x[1], x[2]], [x[3], x[4]]]
-    #Throw error when partition isnt set up!
+    # Throw error when partition isnt set up!
 end
-#=
-TODO: Test Plan
 
-_build_partitioned_expression: 6 tests (DONE)
-contains_only_partition_variables: 5 tests (2 for union + 3 others)
-_nonlinear_recursion: 5 tests (4 for union + 1 other)
-_bound_auxiliary: 6 tests (3 for union + 3 others) (DONE)
-reformulate_disjunct_constraint: 8 tests (2 for Interval/EqualTo + 3 for vector sets + 3 others)
-Utility functions: 2 tests
-=#
-
-function test_build_partitioned_expression()
+function _test_build_partitioned_expression()
     @variable(JuMP.Model(), x[1:4])
     partition_variables = [x[1], x[4]]
     # Build each type of expression
-    nonlinear = exp(x[1])
+    nonlinear = exp(x[1]) + 1/x[2] - exp(x[2])
     affexpr = 1.0 * x[1] - 2.0 * x[2]  # Simple way to create AffExpr
     quadexpr = x[1] * x[1] + 2.0 * x[1] * x[1] + 3.0 * x[2] * x[2]  # Simple way to create QuadExpr
     var = x[3]
     num = 4.0
-    
-    con = JuMP.build_constraint(error, nonlinear, MOI.EqualTo(0.0))
-    result_nl, rhs_nl = DP._build_partitioned_expression(nonlinear, partition_variables)
-    #Why can't I test with an equivalent expression?
-    #Example output
-    #P-Split Reformulation: Test Failed at c:\Users\LocalAdmin\Code\DisjunctiveProgramming.jl\test\constraints\psplit.jl:33
-    #Expression: result_nl == NonlinearExpr(:exp, Any[x[1]])
-    #Evaluated: exp(x[1]) == exp(x[1])
+    result_nl, constant_nl = DP._build_partitioned_expression(nonlinear, partition_variables)
+
+    # println(typeof(result_nl))
+    # @test result_nl == exp(x[1])
+    @test constant_nl == 0
 
 
-    println(typeof(result_nl))
-    # @test JuMP.value(result_nl, 1) == exp(x[1])
-    @test rhs_nl == 0
+    #TODO: Can improve how nl works.
+    #P-Split Reformulation: Test Failed at C:\Users\LocalAdmin\Code\DisjunctiveProgramming.jl\test\constraints\psplit.jl:29
+    #Expression: result_nl == exp(x[1])
+    #Evaluated: ((exp(x[1]) - 0.0) + 0) - 0.0 == exp(x[1])
     
-    result_aff, rhs_aff = DP._build_partitioned_expression(affexpr, partition_variables)
+    result_aff, constant_aff = DP._build_partitioned_expression(affexpr, partition_variables)
     @test result_aff == 1.0 * x[1]
-    @test rhs_aff == 0
+    @test constant_aff == 0
     
-    result_quad, rhs_quad = DP._build_partitioned_expression(quadexpr, partition_variables)
+    result_quad, constant_quad = DP._build_partitioned_expression(quadexpr, partition_variables)
     @test result_quad == x[1] * x[1] + 2.0 * x[1] * x[1]
-    @test rhs_quad == 0
+    @test constant_quad == 0
     
     @test DP._build_partitioned_expression(var, partition_variables) == (0, 0)
     @test DP._build_partitioned_expression(num, partition_variables) == (num, 0)
 
-    @test_throws ErrorException DP._build_partitioned_expression(JuMP.NonlinearExpr(:+, [affexpr, quadexpr]), partition_variables)
-end
-
-function _test_contains_only_partition_variables()
-    @variable(JuMP.Model(), x[1:4])
-
-    #TODO:Come back to this after fixing NLE
-    #TODO: GenericAffExpr, GenericQuadExpr, GenericNonlinearExpr, VariableRef, Number, ErrorException
+    @test_throws ErrorException DP._build_partitioned_expression("JuMP.NonlinearExpr(:+, [affexpr, quadexpr])", partition_variables)
 end
 
 function _test_bound_auxiliary()
     model = GDPModel()
     # model = JuMP.Model()
     @variable(model, 0 <= x[1:4] <= 3)
-    @variable(model, v[1:5])
+    @variable(model, v[1:6])
     method = PSplit([[x[1], x[2]], [x[3], x[4]]])
-    nonlinear = JuMP.@expression(model, exp(x[1]))
+    nonlinear = JuMP.@expression(model, exp(x[1]) + 1/x[4])
     affexpr = 1.0 * x[1] - 2.0 * x[2]
     quadexpr = x[1] * x[1] + 2.0 * x[1] * x[1] + 3.0 * x[2] * x[2]
     var = x[3]
@@ -81,7 +62,10 @@ function _test_bound_auxiliary()
     DP._bound_auxiliary(model, v[3], num, method)
     DP._bound_auxiliary(model, v[4], var, method)
     DP._bound_auxiliary(model, v[5], affexpr, method)
-    
+    DP._bound_auxiliary(model, v[6], v[6], method)
+
+    @test JuMP.lower_bound(v[6]) == 0
+    @test JuMP.upper_bound(v[6]) == 0
     @test JuMP.lower_bound(v[5]) == -6
     @test JuMP.upper_bound(v[5]) == 3
     @test JuMP.lower_bound(v[4]) == 0
@@ -90,7 +74,7 @@ function _test_bound_auxiliary()
         @test !JuMP.has_lower_bound(v[i]) == true
         @test !JuMP.has_upper_bound(v[i]) == true
     end
-
+    @test_throws ErrorException DP._bound_auxiliary(model, v[1], "JuMP.NonlinearExpr(:+, [affexpr, quadexpr])", method)
 end
 
 function _test_reformulate_disjunct_constraint_affexpr()
@@ -101,13 +85,13 @@ function _test_reformulate_disjunct_constraint_affexpr()
     for i in 1:4
         DP._variable_bounds(model)[x[i]] = DP.set_variable_bound_info(x[i], method)
     end
-
+    
     lt = JuMP.constraint_object(@constraint(model, x[1] + x[3] <= 1))
     gt = JuMP.constraint_object(@constraint(model, x[2] + x[4] >= 1))
     eq = JuMP.constraint_object(@constraint(model, x[3] + x[4] == 1))
     interval = JuMP.constraint_object(@constraint(model, 0 <= x[1] + x[2] + x[3] <= 0.5))
     nn = JuMP.constraint_object(@constraint(model, x .- 1 >= 0))
-    np = JuMP.constraint_object(@constraint(model, x .+ 1 >= 0))
+    np = JuMP.constraint_object(@constraint(model, -x .+ 1 <= 0))
     zeros = JuMP.constraint_object(@constraint(model, 5x .- 1 == 0))
     ref_lt = reformulate_disjunct_constraint(model, lt, y[1], method)
     ref_gt = reformulate_disjunct_constraint(model, gt, y[2], method)
@@ -156,10 +140,10 @@ function _test_reformulate_disjunct_constraint_affexpr()
     -variable_by_name(model, "v_$(hash(np))_2_2"),
     -x[3] - variable_by_name(model, "v_$(hash(np))_2_3"),
     -x[4] - variable_by_name(model, "v_$(hash(np))_2_4")]
-    @test ref_np[3].func == [variable_by_name(model, "v_$(hash(np))_1_1")*y[2] + variable_by_name(model, "v_$(hash(np))_2_1")*y[2] - y[2], 
-    variable_by_name(model, "v_$(hash(np))_1_2")*y[2] + variable_by_name(model, "v_$(hash(np))_2_2")*y[2] - y[2],
-    variable_by_name(model, "v_$(hash(np))_1_3")*y[2] + variable_by_name(model, "v_$(hash(np))_2_3")*y[2] - y[2],
-    variable_by_name(model, "v_$(hash(np))_1_4")*y[2] + variable_by_name(model, "v_$(hash(np))_2_4")*y[2] - y[2]]
+    @test ref_np[3].func == [variable_by_name(model, "v_$(hash(np))_1_1")*y[2] + variable_by_name(model, "v_$(hash(np))_2_1")*y[2] + y[2],
+    variable_by_name(model, "v_$(hash(np))_1_2")*y[2] + variable_by_name(model, "v_$(hash(np))_2_2")*y[2] + y[2],
+    variable_by_name(model, "v_$(hash(np))_1_3")*y[2] + variable_by_name(model, "v_$(hash(np))_2_3")*y[2] + y[2],
+    variable_by_name(model, "v_$(hash(np))_1_4")*y[2] + variable_by_name(model, "v_$(hash(np))_2_4")*y[2] + y[2]]
 
     @test ref_zeros[1].func == [5x[1] - variable_by_name(model, "v_$(hash(zeros))_1_1_1"),
     5x[2] - variable_by_name(model, "v_$(hash(zeros))_1_2_1"),
@@ -174,13 +158,23 @@ function _test_reformulate_disjunct_constraint_affexpr()
     variable_by_name(model, "v_$(hash(zeros))_1_2_1")*y[1] + variable_by_name(model, "v_$(hash(zeros))_2_2_1")*y[1] - y[1],
     variable_by_name(model, "v_$(hash(zeros))_1_3_1")*y[1] + variable_by_name(model, "v_$(hash(zeros))_2_3_1")*y[1] - y[1],
     variable_by_name(model, "v_$(hash(zeros))_1_4_1")*y[1] + variable_by_name(model, "v_$(hash(zeros))_2_4_1")*y[1] - y[1]]
-
+    @test_throws ErrorException reformulate_disjunct_constraint(model, "JuMP.VectorConstraint", y[1], method)
 end
 
+function _test_set_variable_bound_info()
+    model = GDPModel()
+    @variable(model, x)
+    
+    @test_throws ErrorException DP.set_variable_bound_info(x, PSplit([[x]]))
+    JuMP.set_lower_bound(x, 0.0)
+    JuMP.set_upper_bound(x, 3.0)
+    @test DP.set_variable_bound_info(x, PSplit([[x]])) == (0, 3)
+end
+ 
 @testset "P-Split Reformulation" begin
-    # test_psplit()
-    # test_build_partitioned_expression()
-    # _test_contains_only_partition_variables()
-    # _test_bound_auxiliary()
+    _test_psplit()
+    _test_build_partitioned_expression()
+    _test_bound_auxiliary()
     _test_reformulate_disjunct_constraint_affexpr()
+    _test_set_variable_bound_info()
 end
