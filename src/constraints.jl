@@ -29,17 +29,14 @@ function _copy_variable(
     target_model::JuMP.AbstractModel,
     original_var::JuMP.AbstractVariableRef,
     )
-    # Create new variable
     new_var = JuMP.@variable(target_model, base_name = JuMP.name(original_var))
     
-    # Copy all properties from original variable
     JuMP.has_lower_bound(original_var) && JuMP.set_lower_bound(new_var, JuMP.lower_bound(original_var))
     JuMP.has_upper_bound(original_var) && JuMP.set_upper_bound(new_var, JuMP.upper_bound(original_var))
     JuMP.has_start_value(original_var) && JuMP.set_start_value(new_var, JuMP.start_value(original_var))
     JuMP.is_integer(original_var) && JuMP.set_integer(new_var)
     JuMP.is_binary(original_var) && JuMP.set_binary(new_var)
     
-    # Handle fixed values with force=true (as in original MBM code)
     if JuMP.is_fixed(original_var)
         JuMP.fix(new_var, JuMP.fix_value(original_var); force=true)
     end
