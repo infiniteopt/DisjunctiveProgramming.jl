@@ -1,7 +1,6 @@
 import DisjunctiveProgramming as DP
 using DisjunctiveProgramming
 using Test
-
 include("utilities.jl")
 
 # RUN ALL THE TESTS
@@ -20,3 +19,4 @@ include("constraints/fallback.jl")
 include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
+include("constraints/mbm.jl")

@@ -23,7 +23,8 @@ _vec_to_scalar_set(::_MOIExactly) = _MOI.EqualTo
 _vec_to_scalar_set(::_MOIAtLeast) = _MOI.GreaterThan
 _vec_to_scalar_set(::_MOIAtMost) = _MOI.LessThan
 
-# helper function to copy variables from one model to another
+#helper function to create variables
+# Helper function to copy variable properties from an existing variable
 function _copy_variable(
     target_model::JuMP.AbstractModel,
     original_var::JuMP.AbstractVariableRef,
@@ -42,6 +43,8 @@ function _copy_variable(
     
     return new_var
 end
+
+
 
 ################################################################################
 #                         BOILERPLATE EXTENSION METHODS
