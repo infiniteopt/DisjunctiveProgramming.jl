@@ -384,6 +384,24 @@ struct MBM{O} <: AbstractReformulationMethod
     end
 end
 
+"""
+    cutting_planes{O} <: AbstractReformulationMethod
+
+A type for using the cutting planes approach for disjunctive constraints.
+
+**Fields**
+- 'optimizer::O': Optimizer to use when solving mini-models (required).
+- 'iter::Int': Number of iterations (default = `3`).
+"""
+struct cutting_planes{O} <: AbstractReformulationMethod
+    optimizer::O
+    iter::Int
+    
+    # Constructor with optimizer (required)
+    function cutting_planes(optimizer::O, iter::Int = 3) where {O}
+        new{O}(optimizer, iter)
+    end
+end
 
 
 """

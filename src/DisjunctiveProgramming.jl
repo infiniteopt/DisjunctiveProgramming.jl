@@ -22,6 +22,7 @@ include("reformulate.jl")
 include("bigm.jl")
 include("hull.jl")
 include("mbm.jl")
+include("cuttingplanes.jl")
 include("indicator.jl")
 include("print.jl")
 

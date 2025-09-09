@@ -227,7 +227,7 @@ function _mini_model(
     sub_model = JuMP.Model()
     new_vars = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for var in JuMP.all_variables(model)
-        new_vars[var] = _copy_variable(sub_model, var)
+        new_vars[var] = _copy_variable(sub_model, var, method)
     end
     for con in [JuMP.constraint_object(con) for con in constraints]
         expr = replace_variables_in_constraint(con.func, new_vars)

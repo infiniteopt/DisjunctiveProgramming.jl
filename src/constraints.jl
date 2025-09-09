@@ -28,6 +28,7 @@ _vec_to_scalar_set(::_MOIAtMost) = _MOI.LessThan
 function _copy_variable(
     target_model::JuMP.AbstractModel,
     original_var::JuMP.AbstractVariableRef,
+    method::MBM
     )
     new_var = JuMP.@variable(target_model, base_name = JuMP.name(original_var))
     
@@ -44,7 +45,28 @@ function _copy_variable(
     return new_var
 end
 
-
+function _copy_variable(
+    target_model::JuMP.AbstractModel,
+    original_var::JuMP.AbstractVariableRef,
+    method::cutting_planes
+    )
+    new_var = JuMP.@variable(target_model, base_name = JuMP.name(original_var))
+    
+    JuMP.has_lower_bound(original_var) && JuMP.set_lower_bound(new_var, JuMP.lower_bound(original_var))
+    JuMP.has_upper_bound(original_var) && JuMP.set_upper_bound(new_var, JuMP.upper_bound(original_var))
+    JuMP.has_start_value(original_var) && JuMP.set_start_value(new_var, JuMP.start_value(original_var))
+    #JuMP.is_integer(original_var) && JuMP.set_integer(new_var)
+    if JuMP.is_binary(original_var)
+        JuMP.set_lower_bound(new_var, 0.0)
+        JuMP.set_upper_bound(new_var, 1.0)
+    end
+    
+    if JuMP.is_fixed(original_var)
+        JuMP.fix(new_var, JuMP.fix_value(original_var); force=true)
+    end
+    
+    return new_var
+end
 
 ################################################################################
 #                         BOILERPLATE EXTENSION METHODS
