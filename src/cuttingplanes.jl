@@ -2,7 +2,8 @@ function reformulate_model(
     model::JuMP.AbstractModel, 
     method::cutting_planes
     ) 
-
+    obj = objective_function(model)
+    sense = objective_sense(model)
     #Initializing SEP
     SEP = JuMP.Model(method.optimizer)
     _reformulate_disjunctions(model, Hull())
@@ -14,8 +15,9 @@ function reformulate_model(
     
     #Initializing rBM
     rBM = JuMP.Model(method.optimizer)
-    reformulate_model(model, BigM(100, false))
+    reformulate_model(model, BigM(10e8))
     main_to_rBM_map = _copy_variables_and_constraints(model, rBM, method)
+    JuMP.@objective(rBM, sense, replace_variables_in_constraint(obj, main_to_rBM_map))
     rBM_to_main_map = Dict(v => k for (k, v) in main_to_rBM_map)
 
     # Create cross-mappings between rBM and SEP models
@@ -64,6 +66,7 @@ function _solve_rBM(
     for rBM_var in rBM_vars
         solution_dict[rBM_var] = JuMP.value(rBM_var)
     end
+    println("rBM OBJECTIVE L = ", objective_value(rBM))
     return solution_dict
 end
 
@@ -74,10 +77,9 @@ function _solve_SEP(
     SEP_to_rBM_map::Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef},
     rBM_to_SEP_map::Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef} 
 )
-    println(rBM_to_SEP_map)
     SEP_vars = [rBM_to_SEP_map[rBM_var] for rBM_var in JuMP.all_variables(rBM)]
-    println(SEP_vars)
     obj_expr = sum((SEP_var - rBM_sol[SEP_to_rBM_map[SEP_var]])^2 for SEP_var in SEP_vars)
+    println("SEP OBJECTIVE L = ", obj_expr)
     JuMP.@objective(SEP, Min, obj_expr)
     optimize!(SEP)
 
@@ -97,15 +99,14 @@ function _cutting_planes(
     SEP_sol::Dict{JuMP.AbstractVariableRef, Float64},
 )
     main_vars = JuMP.all_variables(model)
+
     ξ_sep = Dict{JuMP.AbstractVariableRef, Float64}(var => 0.0 for var in main_vars)
     for var in main_vars
-        ξ_sep[var] = rBM_sol[main_to_rBM_map[var]] - SEP_sol[main_to_SEP_map[var]]
+        ξ_sep[var] = 2*(SEP_sol[main_to_SEP_map[var]] - rBM_sol[main_to_rBM_map[var]])
     end
-    
     main_cut_expr = JuMP.@expression(model, sum(ξ_sep[var]*(var - SEP_sol[main_to_SEP_map[var]]) for var in main_vars))
     rBM_cut_expr = replace_variables_in_constraint(main_cut_expr, main_to_rBM_map)
-
-    JuMP.@constraint(model, main_cut_expr <= 0)
-    JuMP.@constraint(rBM, rBM_cut_expr <= 0)
+    JuMP.@constraint(model, main_cut_expr >= 0)
+    JuMP.@constraint(rBM, rBM_cut_expr >= 0)
 
 end
