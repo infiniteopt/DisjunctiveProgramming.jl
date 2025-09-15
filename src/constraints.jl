@@ -44,7 +44,12 @@ function _copy_variable(
     return new_var
 end
 
-
+# Helper function to copy variable properties from an existing variable
+function _copy_model(
+    model::M
+    ) where {M <: JuMP.AbstractModel}
+    return M()
+end
 
 ################################################################################
 #                         BOILERPLATE EXTENSION METHODS

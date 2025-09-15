@@ -224,7 +224,7 @@ function _mini_model(
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
-    sub_model = JuMP.Model()
+    sub_model = _copy_model(model)
     new_vars = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for var in JuMP.all_variables(model)
         new_vars[var] = _copy_variable(sub_model, var)
@@ -279,7 +279,7 @@ function replace_variables_in_constraint(fun:: JuMP.AbstractVariableRef, var_map
     return var_map[fun]
 end
 
-function replace_variables_in_constraint(fun::JuMP.AffExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
+function replace_variables_in_constraint(fun::JuMP.GenericAffExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_aff = JuMP.zero(JuMP.AffExpr)
     for (var, coef) in fun.terms
         new_var = var_map[var]
@@ -289,7 +289,7 @@ function replace_variables_in_constraint(fun::JuMP.AffExpr, var_map::Dict{<:JuMP
     return new_aff
 end
 
-function replace_variables_in_constraint(fun::JuMP.QuadExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
+function replace_variables_in_constraint(fun::JuMP.GenericQuadExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_quad = JuMP.zero(JuMP.QuadExpr)
     for (vars, coef) in fun.terms
         JuMP.add_to_expression!(new_quad, coef, var_map[vars.a], var_map[vars.b])
@@ -303,9 +303,9 @@ function replace_variables_in_constraint(fun::Number, var_map::Dict{<:JuMP.Abstr
     return fun
 end
 
-function replace_variables_in_constraint(fun::JuMP.NonlinearExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
+function replace_variables_in_constraint(fun::JuMP.GenericNonlinearExpr, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     new_args = Any[replace_variables_in_constraint(arg, var_map) for arg in fun.args]
-    return JuMP.NonlinearExpr(fun.head, new_args)
+    return JuMP.GenericNonlinearExpr(fun.head, new_args)
 end
 
 function replace_variables_in_constraint(fun::Vector{T}, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}) where T

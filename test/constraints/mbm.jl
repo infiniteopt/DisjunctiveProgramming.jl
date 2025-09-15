@@ -14,7 +14,7 @@ function test_replace_variables_in_constraint()
     @constraint(model, con4, [x[1],x[2],x[3]] in MOI.Zeros(3))
     
     #Test GenericVariableRef
-    new_vars = Dict{VariableRef, VariableRef}()
+    new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:3]
     varref = DP.replace_variables_in_constraint(x[1], new_vars)
     expr1 = DP.replace_variables_in_constraint(constraint_object(con1).func, new_vars)
@@ -43,7 +43,7 @@ function test_constraint_to_objective()
     @constraint(model, greaterthan, x[2] >= 1)
     @constraint(model, interval, 0 <= x[1] <= 55)
     @constraint(model, equalto, x[1] == 1)
-    new_vars = Dict{VariableRef, VariableRef}()
+    new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:2]
     DP.constraint_to_objective(sub_model, constraint_object(lessthan), new_vars)
     @test objective_function(sub_model) == JuMP.@expression(sub_model, new_vars[x[1]] - 1)
@@ -106,7 +106,7 @@ function test_reformulate_disjunct_constraint()
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[5]))
 
     M = Dict{LogicalVariableRef,Float64}(Y[i] => Float64(i) for i in 1:5)
-    bconref = Dict{LogicalVariableRef,VariableRef}(Y[i] => binary_variable(Y[i]) for i in 1:5)
+    bconref = Dict{LogicalVariableRef,AbstractVariableRef}(Y[i] => binary_variable(Y[i]) for i in 1:5)
     reformulated_constraints = [reformulate_disjunct_constraint(model, constraint_object(constraints), bconref, M, MBM(HiGHS.Optimizer)) for constraints in [lessthan, greaterthan, equalto, nonpositives, nonnegatives, zeros]]
     @test reformulated_constraints[1][1].func == JuMP.@expression(model, x[1] - sum(M[i] * bconref[i] for i in keys(M))) && reformulated_constraints[1][1].set == MOI.LessThan(1.0)
     @test reformulated_constraints[2][1].func == JuMP.@expression(model, x[1] + sum(M[i] * bconref[i] for i in keys(M))) && reformulated_constraints[2][1].set == MOI.GreaterThan(1.0)
