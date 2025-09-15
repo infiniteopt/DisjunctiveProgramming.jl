@@ -273,8 +273,6 @@ end
 #                          REPLACE VARIABLES IN CONSTRAINT
 ################################################################################
 
-
-
 function replace_variables_in_constraint(fun:: JuMP.AbstractVariableRef, var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef})
     return var_map[fun]
 end
