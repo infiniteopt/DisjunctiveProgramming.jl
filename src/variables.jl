@@ -469,8 +469,10 @@ Returns a JuMP variable created in `model` using the properties specified in `pr
 This function applies all variable attributes from the `VariableProperties` object 
 including binary/integer constraints, bounds, fixed values, and start values.
 """
-function _variable_from_properties(model::JuMP.AbstractModel, props::VariableProperties)
-    var = @variable(model, base_name = props.name)
+function _variable_from_properties(
+    model::JuMP.AbstractModel, props::VariableProperties)
+    var = @variable(model, base_name = props.name
+    )
     
     if props.is_binary
         set_binary(var)
