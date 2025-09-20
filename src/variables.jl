@@ -463,11 +463,15 @@ end
 ################################################################################
 
 """
-    _variable_from_properties(model::JuMP.Model, props::VariableProperties)::JuMP.AbstractVariableRef
+    create_variable(model::JuMP.AbstractModel, props::VariableProperties)::JuMP.AbstractVariableRef
 
-Returns a JuMP variable created in `model` using the properties specified in `props`. 
+Creates and adds a JuMP variable to `model` using the properties specified in `props`. 
 This function applies all variable attributes from the `VariableProperties` object 
-including binary/integer constraints, bounds, fixed values, and start values.
+including binary/integer constraints, bounds, fixed values, start values, and constraint sets.
+
+The function first creates a variable object using `_make_variable_object`, optionally applies
+any constraint sets if `props.set` is not nothing, and then adds the variable to the model
+with the specified name.
 """
 function create_variable(model::JuMP.AbstractModel, props::VariableProperties)
     var = _make_variable_object(props)
@@ -482,4 +486,9 @@ function _make_variable_object(props::VariableProperties{L, U, F, S, SET, Nothin
 end
 function _make_variable_object(props::VariableProperties)
     return JuMP.build_variable(error, props.info, props.variable_type)
+end
+
+function variable_copy(model::JuMP.AbstractModel, vref::JuMP.AbstractVariableRef)
+    props = VariableProperties(vref)
+    return create_variable(model, props)
 end
