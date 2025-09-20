@@ -52,12 +52,7 @@ function test_make_variable_object()
     )
 
     # Create new VariableProperties with modified info
-    modified_props = DP.VariableProperties{typeof(modified_info).parameters[1], 
-                                      typeof(modified_info).parameters[2],
-                                      typeof(modified_info).parameters[3], 
-                                      typeof(modified_info).parameters[4],
-                                      Nothing, Nothing}(
-                                      modified_info, props.name, props.set, props.variable_type)
+    modified_props = DP.VariableProperties(modified_info, props.name, props.set, props.variable_type)
     
     var_obj = DP._make_variable_object(modified_props)
     @test var_obj.info.upper_bound == 10.0
