@@ -481,14 +481,19 @@ function create_variable(model::JuMP.AbstractModel, props::VariableProperties)
     return JuMP.add_variable(model, var, props.name)
 end
 
-function _make_variable_object(props::VariableProperties{L, U, F, S, SET, Nothing}) where {L, U, F, S, SET}
+function _make_variable_object(
+    props::VariableProperties{L, U, F, S, SET, Nothing}
+    ) where {L, U, F, S, SET}
     return JuMP.build_variable(error, props.info)
 end
 function _make_variable_object(props::VariableProperties)
     return JuMP.build_variable(error, props.info, props.variable_type)
 end
 
-function variable_copy(model::JuMP.AbstractModel, vref::JuMP.AbstractVariableRef)
+function variable_copy(
+    model::JuMP.AbstractModel, 
+    vref::JuMP.AbstractVariableRef
+    )
     props = VariableProperties(vref)
     return create_variable(model, props)
 end
