@@ -469,25 +469,17 @@ Returns a JuMP variable created in `model` using the properties specified in `pr
 This function applies all variable attributes from the `VariableProperties` object 
 including binary/integer constraints, bounds, fixed values, and start values.
 """
-function _variable_from_properties(
-    model::JuMP.AbstractModel, props::VariableProperties)
-    var = @variable(model, base_name = props.name
-    )
-    
-    if props.is_binary
-        set_binary(var)
-    elseif props.is_integer  
-        set_integer(var)
+function create_variable(model::JuMP.AbstractModel, props::VariableProperties)
+    var = _make_variable_object(props)
+    if !isnothing(props.set)
+        var = JuMP.build_variable(error, var, props.set)
     end
-    
-    if props.fix_value !== nothing
-        fix(var, props.fix_value)
-    elseif props.start_value !== nothing
-        set_start_value(var, props.start_value)  
-    end
-    
-    props.lower_bound !== nothing && set_lower_bound(var, props.lower_bound)
-    props.upper_bound !== nothing && set_upper_bound(var, props.upper_bound)
-    
-    return var
+    return JuMP.add_variable(model, var, props.name)
+end
+
+function _make_variable_object(props::VariableProperties{L, U, F, S, SET, Nothing}) where {L, U, F, S, SET}
+    return JuMP.build_variable(error, props.info)
+end
+function _make_variable_object(props::VariableProperties)
+    return JuMP.build_variable(error, props.info, props.variable_type)
 end
