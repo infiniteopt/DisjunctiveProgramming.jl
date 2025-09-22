@@ -1,15 +1,6 @@
 ################################################################################
 #                              VARIABLE DISAGGREGATION
 ################################################################################
-"""
-    requires_disaggregation(vref::JuMP.AbstractVariableRef)::Bool
-
-Return a `Bool` whether `vref` requires disaggregation for the [`Hull`](@ref) 
-reformulation. This is intended as an extension point for interfaces with 
-DisjunctiveProgramming that use variable reference types that are not 
-`JuMP.GenericVariableRef`s. Errors if `vref` is not a `JuMP.GenericVariableRef`.
-See also [`make_disaggregated_variable`](@ref).
-"""
 requires_disaggregation(vref::JuMP.GenericVariableRef) = true
 function requires_disaggregation(::V) where {V}
     error("`Hull` method does not support expressions with variable " *
@@ -38,22 +29,21 @@ function _disaggregate_variable(
     )
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
+    T = JuMP.value_type(typeof(model))
     info = JuMP.VariableInfo(
-    true,      # has_lb = true
-    lb,        # lower_bound = lb
-    true,      # has_ub = true  
-    ub,        # upper_bound = ub
-    false,     # has_fix = false
-    0,         # fixed_value = 0
-    false,     # has_start = false
-    0,         # start = 0
-    false,     # binary = false
-    false)     # integer = false
-    # dvref = make_disaggregated_variable(model, vref, "$(vref)_$(lvref)", lb, ub)
-
-    dvref = create_variable(model, 
-    VariableProperties(info, "$(vref)_$(lvref)", nothing, nothing))
-
+        true,      # has_lb = true
+        lb,        # lower_bound = lb
+        true,      # has_ub = true  
+        ub,        # upper_bound = ub
+        false,     # has_fix = false
+        zero(T),   # fixed_value = 0
+        false,     # has_start = false
+        zero(T),   # start = 0
+        false,     # binary = false
+        false      # integer = false
+    )
+    properties = VariableProperties(info, "$(vref)_$(lvref)", nothing, nothing)
+    dvref = create_variable(model, properties)
     push!(_reformulation_variables(model), dvref)
     #get binary indicator variable
     bvref = binary_variable(lvref)

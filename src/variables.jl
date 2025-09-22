@@ -481,15 +481,35 @@ function create_variable(model::JuMP.AbstractModel, props::VariableProperties)
     return JuMP.add_variable(model, var, props.name)
 end
 
+
+"""
+    _make_variable_object(props::VariableProperties)::Any
+
+Constructs a JuMP variable object from the given `VariableProperties`. 
+If the `variable_type` field is `nothing`, dispatches to `JuMP.build_variable`
+with only the variable info; otherwise, passes `variable_type` as a tag/type.
+
+Returns a JuMP variable object that can be added to a model.
+"""
 function _make_variable_object(
     props::VariableProperties{L, U, F, S, SET, Nothing}
     ) where {L, U, F, S, SET}
     return JuMP.build_variable(error, props.info)
 end
+
 function _make_variable_object(props::VariableProperties)
     return JuMP.build_variable(error, props.info, props.variable_type)
 end
 
+
+"""
+    variable_copy(model::JuMP.AbstractModel, vref::JuMP.AbstractVariableRef)::JuMP.AbstractVariableRef
+
+Creates a copy of the variable `vref` in the given `model`. The new variable will have
+the same properties (bounds, fixed value, start value, name, and type) as `vref` but will
+be added to `model` as a distinct variable. This is useful for transferring variables 
+between models or duplicating variable definitions in reformulations.
+"""
 function variable_copy(
     model::JuMP.AbstractModel, 
     vref::JuMP.AbstractVariableRef
