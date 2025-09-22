@@ -457,3 +457,52 @@ mutable struct GDPData{M <: JuMP.AbstractModel, V <: JuMP.AbstractVariableRef, C
         )
     end
 end
+
+################################################################################
+#                              VARIABLE INFO
+################################################################################
+"""
+    VariableProperties{L, U, F, S, SET, T}
+
+A type for storing variable properties and attributes that can be applied to JuMP variables.
+This is used to capture and transfer variable information between models during reformulation.
+
+**Fields**
+- `info::JuMP.VariableInfo{L, U, F, S}`: JuMP's VariableInfo struct containing bounds, fixed values, start values, and binary/integer constraints.
+- `name::String`: The variable name.
+- `set::SET`: The constraint set the variable belongs to (if any), obtained via `JuMP.moi_set`.
+- `variable_type::T`: The variable type information, critical for extensions.
+
+**Type Parameters**
+- `L, U, F, S`: Type parameters from JuMP.VariableInfo for lower bound, upper bound, fixed value, and start value types.
+- `SET`: Type of the constraint set the variable belongs to.
+- `T`: Type of the variable type information.
+
+**Constructor**
+`VariableProperties(vref::JuMP.GenericVariableRef{T})` creates a VariableProperties instance
+from a JuMP variable reference, automatically extracting all relevant properties.
+"""
+mutable struct VariableProperties{L, U, F, S, SET, T}
+    info::JuMP.VariableInfo{L, U, F, S}
+    name::String
+    set::SET
+    variable_type::T
+end 
+
+function VariableProperties(vref::JuMP.GenericVariableRef{T}) where T
+    info = JuMP.VariableInfo(
+        JuMP.has_lower_bound(vref),
+        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
+        JuMP.has_upper_bound(vref),
+        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
+        JuMP.is_fixed(vref),
+        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
+        !isnothing(JuMP.start_value(vref)),
+        JuMP.start_value(vref),
+        JuMP.is_binary(vref),
+        JuMP.is_integer(vref)
+    )
+    name = JuMP.name(vref)
+    set = JuMP.is_variable_in_set(vref) ? JuMP.moi_set(JuMP.constraint_object(JuMP.VariableInSetRef(vref))) : nothing
+    return VariableProperties(info, name, set, nothing)
+end

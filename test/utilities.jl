@@ -158,6 +158,3 @@ function JuMP.add_constraint(
    return DP._add_logical_constraint(model, c, name)
 end
 DP.requires_disaggregation(::MyVarRef) = true
-function DP.make_disaggregated_variable(model::MyModel, ::MyVarRef, name, lb, ub)
-    return JuMP.@variable(model, base_name = name, lower_bound = lb, upper_bound = ub)
-end
