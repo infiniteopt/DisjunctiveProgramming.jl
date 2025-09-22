@@ -52,8 +52,7 @@ function _reformulate_disjunct(
     for d in conlvref 
         M[d] = maximum(_maximize_M(model, 
             JuMP.constraint_object(cref), 
-            Vector{DisjunctConstraintRef}(
-                _indicator_to_constraints(model)[d]),
+            _indicator_to_constraints(model)[d],
             method) for cref in constraints)
     end
     
@@ -181,7 +180,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
     return maximum(_maximize_M(model, 
@@ -192,7 +191,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
     return maximum(_maximize_M(model, 
@@ -203,7 +202,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
     return max(
@@ -221,7 +220,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     return _mini_model(model, objective, constraints, method)
@@ -230,7 +229,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
     return max(
@@ -248,7 +247,7 @@ end
 function _maximize_M(
     ::JuMP.AbstractModel, 
     ::F, 
-    ::Vector{DisjunctConstraintRef}, 
+    ::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     ::MBM
 ) where {F}
     error("This type of constraints and objective constraint has " *
@@ -260,7 +259,7 @@ end
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T,S}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     var_type = JuMP.variable_ref_type(model)
@@ -291,10 +290,10 @@ end
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T,S}, 
-    constraints::Vector{DisjunctConstraintRef}, 
+    constraints::Vector{C}, 
     method::MBM
-) where {T,S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, 
-                      _MOI.Zeros, MOI.EqualTo, MOI.Interval}}
+) where {T,S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives,_MOI.Zeros, MOI.EqualTo, MOI.Interval}, 
+                      C <: Union{DisjunctConstraintRef, DisjunctionRef}}
     error("This type of constraints and objective constraint has " *
           "not been implemented for MBM subproblems")
 end
