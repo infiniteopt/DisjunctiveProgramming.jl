@@ -486,7 +486,7 @@ mutable struct VariableProperties{L, U, F, S, SET, T}
     info::JuMP.VariableInfo{L, U, F, S}
     name::String
     set::SET
-    variable_type::T # this is critical for extensions
+    variable_type::T
 end 
 
 function VariableProperties(vref::JuMP.GenericVariableRef{T}) where T

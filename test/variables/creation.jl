@@ -51,15 +51,9 @@ function test_make_variable_object()
         props.info.integer
     )
 
-    # Create new VariableProperties with modified info
-    modified_props = DP.VariableProperties(
-        modified_info, 
-        props.name, 
-        props.set, 
-        props.variable_type
-    )
+    props.info = modified_info
     
-    var_obj = DP._make_variable_object(modified_props)
+    var_obj = DP._make_variable_object(props)
     @test var_obj.info.upper_bound == 10.0
 end
 
@@ -105,6 +99,30 @@ function test_complete_workflow()
     @test JuMP.start_value(recreated) == JuMP.start_value(original)
     @test JuMP.name(recreated) == JuMP.name(original)
     
+    @test original in JuMP.all_variables(model1)
+    @test recreated in JuMP.all_variables(model2)
+    @test !(original in JuMP.all_variables(model2))
+    @test !(recreated in JuMP.all_variables(model1))
+end
+
+function test_variable_copy()
+    model1 = Model()
+    model2 = Model()
+    
+    @variable(model1, original, lower_bound = 1, upper_bound = 5, start = 3.0)
+    
+    props = DP.VariableProperties(original)
+    
+    recreated = DP.create_variable(model2, props)
+    
+    @test JuMP.has_lower_bound(recreated) == JuMP.has_lower_bound(original)
+    @test JuMP.lower_bound(recreated) == JuMP.lower_bound(original)
+    @test JuMP.has_upper_bound(recreated) == JuMP.has_upper_bound(original)
+    @test JuMP.upper_bound(recreated) == JuMP.upper_bound(original)
+    @test JuMP.has_start_value(recreated) == JuMP.has_start_value(original)
+    @test JuMP.start_value(recreated) == JuMP.start_value(original)
+    @test JuMP.name(recreated) == JuMP.name(original)
+    println("##################################")
     @test original in JuMP.all_variables(model1)
     @test recreated in JuMP.all_variables(model2)
     @test !(original in JuMP.all_variables(model2))
