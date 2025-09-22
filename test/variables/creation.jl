@@ -35,9 +35,6 @@ function test_make_variable_object()
     @variable(model, x, lower_bound = 1.0, upper_bound = 5.0)
     props = DP.VariableProperties(x)
 
-
-    # props.info.upper_bound = 10.0 <= can not set because Variable.Info is immutable
-
     modified_info = JuMP.VariableInfo(
         props.info.has_lb,
         props.info.lower_bound,
