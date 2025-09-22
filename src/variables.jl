@@ -463,31 +463,57 @@ end
 ################################################################################
 
 """
-    _variable_from_properties(model::JuMP.Model, props::VariableProperties)::JuMP.AbstractVariableRef
+    create_variable(model::JuMP.AbstractModel, props::VariableProperties)::JuMP.AbstractVariableRef
 
-Returns a JuMP variable created in `model` using the properties specified in `props`. 
+Creates and adds a JuMP variable to `model` using the properties specified in `props`. 
 This function applies all variable attributes from the `VariableProperties` object 
-including binary/integer constraints, bounds, fixed values, and start values.
+including binary/integer constraints, bounds, fixed values, start values, and constraint sets.
+
+The function first creates a variable object using `_make_variable_object`, optionally applies
+any constraint sets if `props.set` is not nothing, and then adds the variable to the model
+with the specified name.
 """
-function _variable_from_properties(
-    model::JuMP.AbstractModel, props::VariableProperties)
-    var = @variable(model, base_name = props.name
+function create_variable(model::JuMP.AbstractModel, props::VariableProperties)
+    var = _make_variable_object(props)
+    if !isnothing(props.set)
+        var = JuMP.build_variable(error, var, props.set)
+    end
+    return JuMP.add_variable(model, var, props.name)
+end
+
+
+"""
+    _make_variable_object(props::VariableProperties)::Any
+
+Constructs a JuMP variable object from the given `VariableProperties`. 
+If the `variable_type` field is `nothing`, dispatches to `JuMP.build_variable`
+with only the variable info; otherwise, passes `variable_type` as a tag/type.
+
+Returns a JuMP variable object that can be added to a model.
+"""
+function _make_variable_object(
+    props::VariableProperties{L, U, F, S, SET, Nothing}
+    ) where {L, U, F, S, SET}
+    return JuMP.build_variable(error, props.info)
+end
+
+function _make_variable_object(props::VariableProperties)
+    return JuMP.build_variable(error, props.info, props.variable_type)
+end
+
+
+"""
+    variable_copy(model::JuMP.AbstractModel, vref::JuMP.AbstractVariableRef)::JuMP.AbstractVariableRef
+
+Creates a copy of the variable `vref` in the given `model`. The new variable will have
+the same properties (bounds, fixed value, start value, name, and type) as `vref` but will
+be added to `model` as a distinct variable. This is useful for transferring variables 
+between models or duplicating variable definitions in reformulations.
+"""
+function variable_copy(
+    model::JuMP.AbstractModel, 
+    vref::JuMP.AbstractVariableRef
     )
-    
-    if props.is_binary
-        set_binary(var)
-    elseif props.is_integer  
-        set_integer(var)
-    end
-    
-    if props.fix_value !== nothing
-        fix(var, props.fix_value)
-    elseif props.start_value !== nothing
-        set_start_value(var, props.start_value)  
-    end
-    
-    props.lower_bound !== nothing && set_lower_bound(var, props.lower_bound)
-    props.upper_bound !== nothing && set_upper_bound(var, props.upper_bound)
-    
-    return var
+    props = VariableProperties(vref)
+    return create_variable(model, props)
 end
