@@ -263,12 +263,11 @@ function _mini_model(
     constraints::Vector{DisjunctConstraintRef}, 
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
+    var_type = JuMP.variable_ref_type(model)
     sub_model = _copy_model(model)
-    new_vars = Dict{JuMP.AbstractVariableRef, 
-                    JuMP.AbstractVariableRef}()
+    new_vars = Dict{var_type, var_type}()
     for var in JuMP.all_variables(model)
-        var_info = VariableProperties(var)
-        new_vars[var] = _variable_from_properties(sub_model, var_info)
+        new_vars[var] = variable_copy(sub_model, var)
     end
     for con in [JuMP.constraint_object(con) for con in constraints]
         expr = replace_variables_in_constraint(con.func, new_vars)
