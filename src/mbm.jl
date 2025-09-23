@@ -26,11 +26,11 @@ function reformulate_disjunction(
                     _DisjunctConstraint(upper_con, d))
                 JuMP.delete(model, cref)
             end 
-            end
         end
+    end
     for d in disj.indicators
-        _reformulate_disjunct(model, ref_cons, d, 
-            LogicalVariableRef[x for x in disj.indicators if x != d], method)
+        method.conlvref = [x for x in disj.indicators if x != d]
+        _reformulate_disjunct(model, ref_cons, d, method)
     end
     return ref_cons
 end
@@ -40,39 +40,72 @@ function _reformulate_disjunct(
     model::JuMP.AbstractModel, 
     ref_cons::Vector{JuMP.AbstractConstraint}, 
     lvref::LogicalVariableRef,
-    conlvref::Vector{LogicalVariableRef},
-    method::AbstractReformulationMethod
-)
-    
-    bconref = Dict(d => binary_variable(d) for d in conlvref)
+    method::MBM
+) 
+    method.M = Dict{LogicalVariableRef, JuMP.value_type(typeof(model))}()
     !haskey(_indicator_to_constraints(model), lvref) && return
+    bconref = Dict(d => binary_variable(d) for d in method.conlvref)
+
     constraints = _indicator_to_constraints(model)[lvref]
-    M = Dict{LogicalVariableRef,Float64}()
-    sizehint!(M, length(conlvref))
-    for d in conlvref 
-        M[d] = maximum(_maximize_M(model, 
-            JuMP.constraint_object(cref), 
-            _indicator_to_constraints(model)[d],
-            method) for cref in constraints)
+    filtered_constraints = [c for c in constraints if c isa DisjunctConstraintRef]
+
+    for d in method.conlvref
+        d_constraints = _indicator_to_constraints(model)[d]
+        disjunct_constraints = [c for c in d_constraints if c isa DisjunctConstraintRef]
+        if !isempty(disjunct_constraints)
+            method.M[d] = maximum(_maximize_M(model, 
+                JuMP.constraint_object(cref), 
+                disjunct_constraints,
+                method) for cref in filtered_constraints)  
+        end
     end
-    
-    isempty(constraints) || sizehint!(ref_cons, length(constraints))
-    for cref in constraints
-        con = JuMP.constraint_object(cref)
+    for cref in filtered_constraints  
+        con = JuMP.constraint_object(cref)  
         append!(ref_cons, reformulate_disjunct_constraint(model, con, 
-            bconref, M, method))
+            bconref, method))
     end
     return ref_cons
 end
 
 function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,  
+    con::Disjunction, 
+    bconref::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
+    method::MBM
+)
+
+    ref_cons = reformulate_disjunction(model, con, method)
+    new_ref_cons = Vector{JuMP.AbstractConstraint}()
+    for ref_con in ref_cons
+        append!(new_ref_cons, reformulate_disjunct_constraint(model, ref_con, bconref, method)) 
+    end
+    return new_ref_cons
+end
+
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,  
+    con::Disjunction, 
+    bconref::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
+    method::MBM
+)
+    ref_cons = reformulate_disjunction(model, con, method)
+    new_ref_cons = Vector{JuMP.AbstractConstraint}()
+    for ref_con in ref_cons
+        append!(new_ref_cons, reformulate_disjunct_constraint(model, ref_con, bconref, method)) 
+    end
+    return new_ref_cons
+end
+
+function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
-    m_sum = sum(M[i] * bconref[i] for i in keys(M))
+    m_sum = sum(method.M[i] * bconref[i] for i in keys(method.M))
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] - m_sum
     )
@@ -80,14 +113,15 @@ function reformulate_disjunct_constraint(
     return [reform_con]
 end
 
+
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
-    m_sum = sum(M[i] * bconref[i] for i in keys(M))
+    m_sum = sum(method.M[i] * bconref[i] for i in keys(method.M))
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] + m_sum
     )
@@ -98,11 +132,11 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
-    m_sum = sum(M[i] * bconref[i] for i in keys(M))
+    m_sum = sum(method.M[i] * bconref[i] for i in keys(method.M))
     upper_expr = JuMP.@expression(model, [i=1:con.set.dimension],
         con.func[i] + m_sum
     )
@@ -120,12 +154,12 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.LessThan}
     new_func = JuMP.@expression(model, 
-        con.func - sum(M[i] * bconref[i] for i in keys(M)))
+        con.func - sum(method.M[i] * bconref[i] for i in keys(method.M)))
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
@@ -133,12 +167,12 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.GreaterThan}
     new_func = JuMP.@expression(model, 
-        con.func + sum(M[i] * bconref[i] for i in keys(M)))
+        con.func + sum(method.M[i] * bconref[i] for i in keys(method.M)))
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
@@ -146,14 +180,14 @@ end
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
-    bconref:: Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-    M::Dict{<:LogicalVariableRef,Float64},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
     upper_func = JuMP.@expression(model, 
-        con.func - sum(M[i] * bconref[i] for i in keys(M)))
+        con.func - sum(method.M[i] * bconref[i] for i in keys(method.M)))
     lower_func = JuMP.@expression(model, 
-        con.func + sum(M[i] * bconref[i] for i in keys(M)))
+        con.func + sum(method.M[i] * bconref[i] for i in keys(method.M)))
     
     upper_con = JuMP.build_constraint(error, upper_func, 
         MOI.LessThan(con.set.value))
@@ -161,11 +195,12 @@ function reformulate_disjunct_constraint(
         MOI.GreaterThan(con.set.value))
     return [lower_con, upper_con]
 end
+
 function reformulate_disjunct_constraint(
     ::JuMP.AbstractModel, 
     ::F, 
-    ::Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef}, 
-    ::Dict{<:LogicalVariableRef,Float64}, 
+    ::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}}, 
     ::MBM
 ) where {F}
     error("Constraint type $(typeof(F)) is not supported by the " *
@@ -180,7 +215,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonpositives, R}
     return maximum(_maximize_M(model, 
@@ -191,7 +226,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
     return maximum(_maximize_M(model, 
@@ -202,7 +237,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.Zeros, R}
     return max(
@@ -220,7 +255,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     return _mini_model(model, objective, constraints, method)
@@ -229,7 +264,7 @@ end
 function _maximize_M(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T, S <: _MOI.EqualTo}
     return max(
@@ -247,7 +282,7 @@ end
 function _maximize_M(
     ::JuMP.AbstractModel, 
     ::F, 
-    ::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    ::Vector{<:DisjunctConstraintRef}, 
     ::MBM
 ) where {F}
     error("This type of constraints and objective constraint has " *
@@ -259,7 +294,7 @@ end
 function _mini_model(
     model::JuMP.AbstractModel, 
     objective::JuMP.ScalarConstraint{T,S}, 
-    constraints::Vector{<: Union{DisjunctConstraintRef, DisjunctionRef}}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     var_type = JuMP.variable_ref_type(model)
@@ -301,10 +336,10 @@ end
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
 ################################################################################
+#TODO: Generalize Float64
 function constraint_to_objective(
     sub_model::JuMP.AbstractModel,
-    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, 
-                               MOI.LessThan{Float64}}, 
+    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{Float64}}, 
     new_vars::Dict{V,K}
 ) where {V <: JuMP.AbstractVariableRef, 
          K <: JuMP.AbstractVariableRef}
@@ -314,8 +349,7 @@ function constraint_to_objective(
 end
 function constraint_to_objective(
     sub_model::JuMP.AbstractModel,
-    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, 
-                               MOI.GreaterThan{Float64}}, 
+    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{Float64}}, 
     new_vars::Dict{V,K}
 ) where {V <: JuMP.AbstractVariableRef, 
          K <: JuMP.AbstractVariableRef}
