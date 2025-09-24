@@ -84,21 +84,6 @@ function reformulate_disjunct_constraint(
 end
 
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel,  
-    con::Disjunction, 
-    bconref::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
-                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
-    method::MBM
-)
-    ref_cons = reformulate_disjunction(model, con, method)
-    new_ref_cons = Vector{JuMP.AbstractConstraint}()
-    for ref_con in ref_cons
-        append!(new_ref_cons, reformulate_disjunct_constraint(model, ref_con, bconref, method)) 
-    end
-    return new_ref_cons
-end
-
-function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
     bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},

@@ -148,73 +148,75 @@ function test_reformulate_disjunct_constraint()
         Disjunct(Y[4]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[5]))
 
-    M = Dict{LogicalVariableRef,Float64}(Y[i] => Float64(i) for i in 1:5)
-    bconref = Dict{LogicalVariableRef,AbstractVariableRef}(
-        Y[i] => binary_variable(Y[i]) for i in 1:5)
+    method = MBM(HiGHS.Optimizer)
+    for i in 1:5
+        method.M[Y[i]] = Float64(i)
+    end
+    bconref = Dict(Y[i] => binary_variable(Y[i]) for i in 1:5)
+    
     reformulated_constraints = [reformulate_disjunct_constraint(model, 
-        constraint_object(constraints), bconref, M, MBM(HiGHS.Optimizer)) 
+        constraint_object(constraints), bconref, method) 
         for constraints in [lessthan, greaterthan, equalto, nonpositives, 
             nonnegatives, zeros]]
     @test reformulated_constraints[1][1].func == JuMP.@expression(model, 
-        x[1] - sum(M[i] * bconref[i] for i in keys(M))) && 
+        x[1] - sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[1][1].set == MOI.LessThan(1.0)
     @test reformulated_constraints[2][1].func == JuMP.@expression(model, 
-        x[1] + sum(M[i] * bconref[i] for i in keys(M))) && 
+        x[1] + sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[2][1].set == MOI.GreaterThan(1.0)
     @test reformulated_constraints[3][1].func == JuMP.@expression(model, 
-        x[1] + sum(M[i] * bconref[i] for i in keys(M))) && 
+        x[1] + sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[3][1].set == MOI.GreaterThan(1.0)
     @test reformulated_constraints[3][2].func == JuMP.@expression(model, 
-        x[1] - sum(M[i] * bconref[i] for i in keys(M))) && 
+        x[1] - sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[3][2].set == MOI.LessThan(1.0)
     @test reformulated_constraints[4][1].func == JuMP.@expression(model, 
-        -x .- sum(M[i] * bconref[i] for i in keys(M))) && 
+        -x .- sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[4][1].set == MOI.Nonpositives(2)
     @test reformulated_constraints[5][1].func == JuMP.@expression(model, 
-        x .+ sum(M[i] * bconref[i] for i in keys(M))) && 
+        x .+ sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[5][1].set == MOI.Nonnegatives(2)
     @test reformulated_constraints[6][1].func == JuMP.@expression(model, 
-        -x .+(1 + sum(M[i] * bconref[i] for i in keys(M)))) && 
+        -x .+(1 + sum(method.M[i] * bconref[i] for i in keys(method.M)))) && 
         reformulated_constraints[6][1].set == MOI.Nonnegatives(2)
     @test reformulated_constraints[6][2].func == JuMP.@expression(model, 
-        -x .+(1 - sum(M[i] * bconref[i] for i in keys(M)))) && 
+        -x .+(1 - sum(method.M[i] * bconref[i] for i in keys(method.M)))) && 
         reformulated_constraints[6][2].set == MOI.Nonpositives(2)
     @test_throws ErrorException reformulate_disjunct_constraint(model, 
-        "odd", bconref, M, MBM(HiGHS.Optimizer))
+        "odd", bconref, method)
 end
 
 function test_reformulate_disjunct()
     model = GDPModel()
-    @variable(model, 1 <= x[1:2] <= 50)
+    @variable(model, 1 <= x[1:2] <= 5)
     @variable(model, Y[1:2], Logical)
-    @constraint(model, lessthan, x[1] <= 2, Disjunct(Y[1]))
     @constraint(model, greaterthan, x[1] >= 1, Disjunct(Y[1]))
-    @constraint(model, interval, x[1] == 55, Disjunct(Y[2]))
+    @constraint(model, interval, x[1] == 2.5, Disjunct(Y[2]))
 
-    bconref = [binary_variable(Y[i]) for i in 1:2]
-    reformulated_disjunct = DP._reformulate_disjunct(model,
-        Vector{JuMP.AbstractConstraint}(),Y[1], LogicalVariableRef[Y[2]], 
-        MBM(HiGHS.Optimizer))
-    M = [0, 1e9]
-    @test reformulated_disjunct[1].func == JuMP.@expression(model, 
-        x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && 
-        reformulated_disjunct[1].set == MOI.LessThan(2.0)
-    @test reformulated_disjunct[2].func == JuMP.@expression(model, 
-        x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && 
-        reformulated_disjunct[2].set == MOI.GreaterThan(1.0)
+    method = MBM(HiGHS.Optimizer)
+    disj = constraint_object(disjunction(model, [Y[1], Y[2]]))
+    reformulated_disjunct = reformulate_disjunction(model, disj, method)
 
-    reformulated_disjunct = DP._reformulate_disjunct(model,
-        Vector{JuMP.AbstractConstraint}(),Y[2], LogicalVariableRef[Y[1]], 
-        MBM(HiGHS.Optimizer))
-    M = [54, 0]
+    @test length(reformulated_disjunct) == 3
 
-    @test reformulated_disjunct[2].func == JuMP.@expression(model, 
-        x[1] - sum(M[i] * bconref[i] for i in 1:length(M))) && 
-        reformulated_disjunct[2].set == MOI.LessThan(55.0)
-    @test reformulated_disjunct[1].func == JuMP.@expression(model, 
-        x[1] + sum(M[i] * bconref[i] for i in 1:length(M))) && 
-        reformulated_disjunct[1].set == MOI.GreaterThan(55.0)
+    @test reformulated_disjunct[1].set == MOI.GreaterThan(1.0)
+    @test reformulated_disjunct[2].set == MOI.GreaterThan(2.5)  
+    @test reformulated_disjunct[3].set == MOI.LessThan(2.5)
 
+    # Test that the expressions have the right structure
+    # Check coefficients and variables in the affine expressions
+    func_1 = reformulated_disjunct[1].func
+    func_2 = reformulated_disjunct[2].func
+    func_3 = reformulated_disjunct[3].func
+
+    @test JuMP.coefficient(func_1, x[1]) == 1.0
+    @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -1.5
+
+    @test JuMP.coefficient(func_2, x[1]) == 1.0
+    @test JuMP.coefficient(func_2, binary_variable(Y[1])) == 2.5
+
+    @test JuMP.coefficient(func_3, x[1]) == 1.0
+    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -2.5
 end
 
 function test_reformulate_disjunction()
@@ -225,14 +227,36 @@ function test_reformulate_disjunction()
     @constraint(model, greaterthan, x >= 1, Disjunct(Y[1]))
     @constraint(model, interval, 0 <= x <= 55, Disjunct(Y[2]))
     disj = disjunction(model, [Y[1], Y[2]])
-    ref_cons = reformulate_disjunction(model, constraint_object(disj), 
-        MBM(HiGHS.Optimizer))
-    @test ref_cons[1].func == JuMP.@expression(model, 
-        x - 53 * binary_variable(Y[2])) && 
-        ref_cons[1].set == MOI.LessThan(2.0)
-    @test ref_cons[2].func == JuMP.@expression(model, 
-        x + 53 * binary_variable(Y[2])) && 
-        ref_cons[2].set == MOI.GreaterThan(1.0)
+    
+    method = MBM(HiGHS.Optimizer)
+    ref_cons = reformulate_disjunction(model, constraint_object(disj), method)
+
+    @test length(ref_cons) == 4
+
+    @test ref_cons[1].set == MOI.LessThan(2.0)
+    
+    @test ref_cons[2].set == MOI.GreaterThan(1.0)
+    
+    @test ref_cons[3].set == MOI.GreaterThan(0.0)
+    
+    @test ref_cons[4].set == MOI.LessThan(55.0)
+
+    func_1 = ref_cons[1].func  # x - 53 Y[2] <= 2.0
+    func_2 = ref_cons[2].func  # x + 53 Y[2] >= 1.0
+    func_3 = ref_cons[3].func  # x - Y[1] >= 0.0
+    func_4 = ref_cons[4].func  # x + Y[1] <= 55.0
+
+    @test JuMP.coefficient(func_1, x) == 1.0
+    @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -53.0
+
+    @test JuMP.coefficient(func_2, x) == 1.0
+    @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 53.0
+
+    @test JuMP.coefficient(func_3, x) == 1.0
+    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -1.0
+
+    @test JuMP.coefficient(func_4, x) == 1.0
+    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 1.0
 end
 
 @testset "MBM" begin
