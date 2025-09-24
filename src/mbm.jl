@@ -321,12 +321,11 @@ end
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
 ################################################################################
-#TODO: Generalize Float64
 function constraint_to_objective(
     sub_model::JuMP.AbstractModel,
-    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{Float64}}, 
+    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{T}}, 
     new_vars::Dict{V,K}
-) where {V <: JuMP.AbstractVariableRef, 
+) where {T,V <: JuMP.AbstractVariableRef, 
          K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, 
         - obj.set.upper + 
@@ -334,9 +333,9 @@ function constraint_to_objective(
 end
 function constraint_to_objective(
     sub_model::JuMP.AbstractModel,
-    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{Float64}}, 
+    obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{T}}, 
     new_vars::Dict{V,K}
-) where {V <: JuMP.AbstractVariableRef, 
+) where {T,V <: JuMP.AbstractVariableRef, 
          K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, 
         - replace_variables_in_constraint(obj.func, new_vars) + 
