@@ -24,6 +24,7 @@ include("bigm.jl")
 include("hull.jl")
 include("indicator.jl")
 include("print.jl")
+include("extension_api.jl")
 
 # Define additional stuff that should not be exported
 const _EXCLUDE_SYMBOLS = [Symbol(@__MODULE__), :eval, :include]

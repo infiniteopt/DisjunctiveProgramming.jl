@@ -115,12 +115,13 @@ function JuMP.add_variable(
     lvref = LogicalVariableRef(model, idx)
     _set_ready_to_optimize(model, false)
     # add the associated binary variables
-    if isnothing(_get_variable(v).logical_complement)
+    extracted_var = _get_variable(v)
+    if isnothing(extracted_var.logical_complement)
         bvref = _make_binary_variable(model, v, name)
         _add_logical_info(bvref, v)
         jump_expr = bvref
     else
-        jump_expr = 1 - binary_variable(v.logical_complement)
+        jump_expr = 1 - binary_variable(extracted_var.logical_complement)
     end
     _indicator_to_binary(model)[lvref] = jump_expr
     return lvref
