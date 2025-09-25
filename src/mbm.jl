@@ -212,11 +212,12 @@ function _maximize_M(
     objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
-) where {T, S <: _MOI.Nonpositives, R}
+) where { T, S <: _MOI.Nonpositives, R}
+    val_type = JuMP.value_type(typeof(model))
     return maximum(
         _maximize_M(
             model, 
-            JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(0)), 
+            JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(zero(val_type))), 
             constraints, 
             method
         ) for i in 1:objective.set.dimension
@@ -228,11 +229,12 @@ function _maximize_M(
     objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
-) where {T, S <: _MOI.Nonnegatives, R}
+) where { T, S <: _MOI.Nonnegatives, R}
+    val_type = JuMP.value_type(typeof(model))
     return maximum(
         _maximize_M(
             model, 
-            JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(0)), 
+            JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(zero(val_type))), 
             constraints, 
             method
         ) for i in 1:objective.set.dimension
@@ -244,12 +246,13 @@ function _maximize_M(
     objective::JuMP.VectorConstraint{T, S, R}, 
     constraints::Vector{<:DisjunctConstraintRef}, 
     method::MBM
-) where {T, S <: _MOI.Zeros, R}
+) where { T, S <: _MOI.Zeros, R}
+    val_type = JuMP.value_type(typeof(model))
     return max(
         maximum(
             _maximize_M(
                 model, 
-                JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(0)), 
+                JuMP.ScalarConstraint(objective.func[i],MOI.GreaterThan(zero(val_type))), 
                 constraints, 
                 method
             ) for i in 1:objective.set.dimension
@@ -257,7 +260,7 @@ function _maximize_M(
         maximum(
             _maximize_M(
                 model, 
-                JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(0)), 
+                JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(zero(val_type))), 
                 constraints, 
                 method
             ) for i in 1:objective.set.dimension
@@ -332,7 +335,7 @@ function _mini_model(
     if JuMP.termination_status(sub_model) != MOI.OPTIMAL || 
        !JuMP.has_values(sub_model) || 
        JuMP.primal_status(sub_model) != MOI.FEASIBLE_POINT
-        M = 1e9
+        M = method.default_M
     else
         M = JuMP.objective_value(sub_model)
     end

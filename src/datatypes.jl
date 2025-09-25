@@ -376,16 +376,18 @@ A type for using the multiple big-M reformulation approach for disjunctive const
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
 - `M::Dict{L, T}`: Dictionary of big-M values for each logical variable.
 - `conlvref::Vector{L}`: Vector of other logical variables in the current disjunction.
+- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable.
 """
 mutable struct MBM{O, T, L <: LogicalVariableRef} <: AbstractReformulationMethod
     optimizer::O
     M::Dict{L, T}
     conlvref::Vector{L}
+    default_M::T
     
-    # Constructor with optimizer (required)
-    function MBM(optimizer::O, ::Type{T} = Float64) where {O, T}
+    # Constructor with optimizer (required) and optional default_M
+    function MBM(optimizer::O, ::Type{T} = Float64, default_M::T = T(1e9)) where {O, T}
         L = LogicalVariableRef
-        new{O, T, L}(optimizer, Dict{L, T}(), L[])
+        new{O, T, L}(optimizer, Dict{L, T}(), L[], default_M)
     end
 end
 
