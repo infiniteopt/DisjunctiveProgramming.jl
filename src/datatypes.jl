@@ -404,6 +404,33 @@ A type for using indicator constraint approach for linear disjunctive constraint
 """
 struct Indicator <: AbstractReformulationMethod end
 
+"""
+    MOIDisjunction <: AbstractReformulationMethod
+A reformulation type for reformulating disjunctions into their MathOptInterface 
+set representations [`DisjunctionSet`](@ref) which are then added to the model.
+"""
+struct MOIDisjunction <: AbstractReformulationMethod end
+
+"""
+    DisjunctionSet{S <: MOI.AbstractSet} <: MOI.AbstractVectorSet
+A MathOptInterface set for representing disjunctions in the format vector of 
+functions in set to enable:
+```julia
+@constraint(model, [funcs...] in DisjunctionSet(n, idxs, sets))
+```
+where the vector of functions `funcs` is a flattened version of all the disjunct 
+constraint functions where the indicator variable is listed first, `n` is the 
+length of `[funcs...]`, `idxs` is a vector of the indices tracking where each 
+disjunct begins (i.e., it stores the indices of the indicator variables in 
+`[funcs...]`), and `sets` is a uses a vector of vectors structure for the MOI sets 
+that correspond to all the disjunct constraint functions.
+"""
+struct DisjunctionSet{S <: _MOI.AbstractSet} <: _MOI.AbstractVectorSet 
+    dimension::Int
+    disjunct_indices::Vector{Int}
+    constraint_sets::Vector{Vector{S}}
+end
+
 ################################################################################
 #                              GDP Data
 ################################################################################
