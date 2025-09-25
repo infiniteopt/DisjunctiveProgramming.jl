@@ -4,7 +4,7 @@ function test_mbm()
     @test MBM(HiGHS.Optimizer).optimizer == HiGHS.Optimizer
 end
 
-function test_replace_variables_in_constraint()
+function test__replace_variables_in_constraint()
     model = Model()
     sub_model = Model()
     @variable(model, x[1:3])
@@ -16,14 +16,14 @@ function test_replace_variables_in_constraint()
     #Test GenericVariableRef
     new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:3]
-    varref = DP.replace_variables_in_constraint(x[1], new_vars)
-    expr1 = DP.replace_variables_in_constraint(
+    varref = DP._replace_variables_in_constraint(x[1], new_vars)
+    expr1 = DP._replace_variables_in_constraint(
         constraint_object(con1).func, new_vars)
-    expr2 = DP.replace_variables_in_constraint(
+    expr2 = DP._replace_variables_in_constraint(
         constraint_object(con2).func, new_vars)
-    expr3 = DP.replace_variables_in_constraint(
+    expr3 = DP._replace_variables_in_constraint(
         constraint_object(con3).func, new_vars)
-    expr4 = DP.replace_variables_in_constraint(
+    expr4 = DP._replace_variables_in_constraint(
         constraint_object(con4).func, new_vars)
     @test expr1 == JuMP.@expression(sub_model, new_vars[x[1]] + 1 - 1)
     @test expr2 == JuMP.@expression(sub_model, new_vars[x[2]]*new_vars[x[1]])
@@ -35,11 +35,11 @@ function test_replace_variables_in_constraint()
     # Evaluated: sin(_[3]) - 0.0 == sin(x[3]) - 0.0
     @test expr3 isa JuMP.NonlinearExpr  # Test it's a nonlinear expression
     @test expr4 == [new_vars[x[i]] for i in 1:3]
-    @test_throws ErrorException DP.replace_variables_in_constraint(
+    @test_throws ErrorException DP._replace_variables_in_constraint(
         "String", new_vars)
 end
 
-function test_constraint_to_objective()
+function test__constraint_to_objective()
     model = Model()
     sub_model = Model()
 
@@ -50,15 +50,15 @@ function test_constraint_to_objective()
     @constraint(model, equalto, x[1] == 1)
     new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:2]
-    DP.constraint_to_objective(sub_model, constraint_object(lessthan), 
+    DP._constraint_to_objective(sub_model, constraint_object(lessthan), 
         new_vars)
     @test objective_function(sub_model) == JuMP.@expression(sub_model, 
         new_vars[x[1]] - 1)
-    DP.constraint_to_objective(sub_model, constraint_object(greaterthan), 
+    DP._constraint_to_objective(sub_model, constraint_object(greaterthan), 
         new_vars)
     @test objective_function(sub_model) == JuMP.@expression(sub_model, 
         1 - new_vars[x[2]])
-    @test_throws ErrorException DP.constraint_to_objective(sub_model, 
+    @test_throws ErrorException DP._constraint_to_objective(sub_model, 
         constraint_object(interval), new_vars)
 end
 
@@ -261,8 +261,8 @@ end
 
 @testset "MBM" begin
     test_mbm()
-    test_replace_variables_in_constraint()
-    test_constraint_to_objective()
+    test__replace_variables_in_constraint()
+    test__constraint_to_objective()
     test_mini_model()
     test_maximize_M()
     test_reformulate_disjunct_constraint()

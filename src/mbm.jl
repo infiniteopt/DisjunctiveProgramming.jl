@@ -322,10 +322,10 @@ function _mini_model(
         new_vars[var] = variable_copy(sub_model, var)
     end
     for con in [JuMP.constraint_object(con) for con in constraints]
-        expr = replace_variables_in_constraint(con.func, new_vars)
+        expr = _replace_variables_in_constraint(con.func, new_vars)
         JuMP.@constraint(sub_model, expr * 1.0 in con.set)
     end
-    constraint_to_objective(sub_model, objective, new_vars)
+    _constraint_to_objective(sub_model, objective, new_vars)
     JuMP.set_optimizer(sub_model, method.optimizer)
     JuMP.set_silent(sub_model)
     JuMP.optimize!(sub_model)
@@ -354,26 +354,26 @@ end
 ################################################################################
 #                          CONSTRAINT TO OBJECTIVE
 ################################################################################
-function constraint_to_objective(
+function _constraint_to_objective(
     sub_model::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.LessThan{T}}, 
     new_vars::Dict{V,K}
 ) where {T,V <: JuMP.AbstractVariableRef, K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, 
-        - obj.set.upper + replace_variables_in_constraint(obj.func, new_vars)
+        - obj.set.upper + _replace_variables_in_constraint(obj.func, new_vars)
     )
 end
-function constraint_to_objective(
+function _constraint_to_objective(
     sub_model::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{<:JuMP.AbstractJuMPScalar, MOI.GreaterThan{T}}, 
     new_vars::Dict{V,K}
 ) where {T,V <: JuMP.AbstractVariableRef, K <: JuMP.AbstractVariableRef}
     JuMP.@objective(sub_model, Max, 
-        - replace_variables_in_constraint(obj.func, new_vars) + obj.set.lower
+        - _replace_variables_in_constraint(obj.func, new_vars) + obj.set.lower
     )
 end
 
-function constraint_to_objective(
+function _constraint_to_objective(
     sub_model::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint, 
     new_vars::Dict{V,K}
@@ -387,14 +387,14 @@ end
 #                          REPLACE VARIABLES IN CONSTRAINT
 ################################################################################
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun:: JuMP.AbstractVariableRef, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 )
     return var_map[fun]
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun::T, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 ) where {T <: JuMP.GenericAffExpr}
@@ -407,7 +407,7 @@ function replace_variables_in_constraint(
     return new_aff
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun::T, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 ) where {T <: JuMP.GenericQuadExpr}
@@ -416,39 +416,39 @@ function replace_variables_in_constraint(
         JuMP.add_to_expression!(new_quad, coef, 
             var_map[vars.a], var_map[vars.b])
     end
-    new_aff = replace_variables_in_constraint(fun.aff, var_map)
+    new_aff = _replace_variables_in_constraint(fun.aff, var_map)
     JuMP.add_to_expression!(new_quad, new_aff)
     return new_quad
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun::Number, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 )
     return fun
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun::T, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 ) where {T <: JuMP.GenericNonlinearExpr}
-    new_args = Any[replace_variables_in_constraint(arg, var_map) 
+    new_args = Any[_replace_variables_in_constraint(arg, var_map) 
                    for arg in fun.args]
     return T(fun.head, new_args)
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     fun::Vector, 
     var_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef}
 ) 
-    return [replace_variables_in_constraint(expr, var_map) 
+    return [_replace_variables_in_constraint(expr, var_map) 
             for expr in fun]
 end
 
-function replace_variables_in_constraint(
+function _replace_variables_in_constraint(
     ::F, 
     ::S
 ) where {F, S}
-    error("replace_variables_in_constraint not implemented for " *
+    error("_replace_variables_in_constraint not implemented for " *
           "$(typeof(F)) and $(typeof(S))")
 end
