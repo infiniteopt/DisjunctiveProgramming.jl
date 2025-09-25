@@ -383,6 +383,23 @@ struct Hull{T} <: AbstractReformulationMethod
     end
 end
 
+"""
+    PSplit <: AbstractReformulationMethod
+
+A type for using the p-split reformulation approach for disjunctive 
+constraints.
+
+**Fields**
+- `partition::Vector{Vector{V}}`: The partition of variables
+"""
+struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
+    partition::Vector{Vector{V}}
+
+    function PSplit(partition::Vector{Vector{V}}) where {V <: JuMP.AbstractVariableRef}
+        new{V}(partition)
+    end
+end
+
 # temp struct to store variable disaggregations (reset for each disjunction)
 mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationMethod
     value::T
