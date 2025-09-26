@@ -8,24 +8,24 @@ function reformulate_disjunction(
     method::MBM
 )
     ref_cons = Vector{JuMP.AbstractConstraint}() 
-    for d in disj.indicators
-        # Make a copy to avoid modifying during iteration
-        constraints = copy(_indicator_to_constraints(model)[d])
-        for cref in constraints
-            con = JuMP.constraint_object(cref)
-            if con isa JuMP.ScalarConstraint{<:Any, <:MOI.Interval}
-                # Create lower and upper bound constraints
-                lower_con = JuMP.build_constraint(error, con.func, 
-                    MOI.GreaterThan(con.set.lower))
-                upper_con = JuMP.build_constraint(error, con.func, 
-                    MOI.LessThan(con.set.upper))
-                # Create new disjunct constraints
-                JuMP.add_constraint(model,_DisjunctConstraint(lower_con, d))
-                JuMP.add_constraint(model,_DisjunctConstraint(upper_con, d))
-                JuMP.delete(model, cref)
-            end 
-        end
-    end
+    # for d in disj.indicators
+    #     # Make a copy to avoid modifying during iteration
+    #     constraints = copy(_indicator_to_constraints(model)[d])
+    #     for cref in constraints
+    #         con = JuMP.constraint_object(cref)
+    #         if con isa JuMP.ScalarConstraint{<:Any, <:MOI.Interval}
+    #             # Create lower and upper bound constraints
+    #             lower_con = JuMP.build_constraint(error, con.func, 
+    #                 MOI.GreaterThan(con.set.lower))
+    #             upper_con = JuMP.build_constraint(error, con.func, 
+    #                 MOI.LessThan(con.set.upper))
+    #             # Create new disjunct constraints
+    #             JuMP.add_constraint(model,_DisjunctConstraint(lower_con, d))
+    #             JuMP.add_constraint(model,_DisjunctConstraint(upper_con, d))
+    #             JuMP.delete(model, cref)
+    #         end 
+    #     end
+    # end
     for d in disj.indicators
         method.conlvref = [x for x in disj.indicators if x != d]
         _reformulate_disjunct(model, ref_cons, d, method)
@@ -192,6 +192,31 @@ function reformulate_disjunct_constraint(
 end
 
 function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.ScalarConstraint{T, S},
+    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+                   Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
+    method::MBM
+) where {T, S <: _MOI.Interval}
+    set_values = _set_values(con.set)  
+    upper_func = JuMP.@expression(model, 
+        con.func - sum(method.M[i] * bconref[i] for i in keys(method.M))
+    )
+    upper_con = JuMP.build_constraint(error, upper_func, 
+        MOI.LessThan(set_values[2])
+    )
+    
+    lower_func = JuMP.@expression(model, 
+        con.func + sum(method.M[i] * bconref[i] for i in keys(method.M))
+    )
+    lower_con = JuMP.build_constraint(error, lower_func, 
+        MOI.GreaterThan(set_values[1])
+    )
+    
+    return [lower_con, upper_con]
+end
+
+function reformulate_disjunct_constraint(
     ::JuMP.AbstractModel, 
     ::F, 
     ::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
@@ -301,6 +326,29 @@ function _maximize_M(
 end
 
 function _maximize_M(
+    model::JuMP.AbstractModel, 
+    objective::JuMP.ScalarConstraint{T, S}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
+    method::MBM
+) where {T, S <: _MOI.Interval}
+    set_values = _set_values(objective.set)  # Returns (lower, upper)
+    return max(
+        _mini_model(
+            model, 
+            JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_values[1])), 
+            constraints, 
+            method
+        ),
+        _mini_model(
+            model, 
+            JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_values[2])), 
+            constraints, 
+            method
+        )
+    )
+end
+
+function _maximize_M(
     ::JuMP.AbstractModel, 
     ::F, 
     ::Vector{<:DisjunctConstraintRef}, 
@@ -351,7 +399,8 @@ function _mini_model(
 ) where {T,S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives,_MOI.Zeros, MOI.EqualTo, MOI.Interval}, 
                       C <: Union{DisjunctConstraintRef, DisjunctionRef}}
     error("This type of constraints and objective constraint has " *
-          "not been implemented for MBM subproblems")
+          "not been implemented for MBM subproblems \n" * 
+          "Objective: $(T) $(S) \nConstraints: $(C)")
 end
 
 ################################################################################

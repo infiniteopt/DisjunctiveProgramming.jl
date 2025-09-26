@@ -66,11 +66,12 @@ function test_mini_model()
     model = GDPModel()
     @variable(model, 0 <= x, start = 1)
     @variable(model, 0 <= y)
-    @variable(model, Y[1:3], Logical)
+    @variable(model, Y[1:4], Logical)
     @constraint(model, con, 3*-x <= 4, Disjunct(Y[1]))
     @constraint(model, con2, 3*x + y >= 15, Disjunct(Y[2]))
     @constraint(model, infeasiblecon, 3*x + y == 15, Disjunct(Y[3]))
-    @disjunction(model, [Y[1], Y[2], Y[3]])
+    @constraint(model, intervalcon, 0 <= x <= 55, Disjunct(Y[4]))
+    @disjunction(model, [Y[1], Y[2], Y[3], Y[4]])
     @test DP._mini_model(model, constraint_object(con), 
         DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer))== -4
     set_upper_bound(x, 1)
@@ -105,6 +106,10 @@ function test_maximize_M()
         Disjunct(Y[5]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[6]))
     
+    @test DP._maximize_M(model, constraint_object(interval), 
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y[2]]), 
+        MBM(HiGHS.Optimizer)) == 0.0
     @test DP._maximize_M(model, constraint_object(lessthan), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
