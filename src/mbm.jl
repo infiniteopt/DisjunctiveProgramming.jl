@@ -8,24 +8,6 @@ function reformulate_disjunction(
     method::MBM
 )
     ref_cons = Vector{JuMP.AbstractConstraint}() 
-    # for d in disj.indicators
-    #     # Make a copy to avoid modifying during iteration
-    #     constraints = copy(_indicator_to_constraints(model)[d])
-    #     for cref in constraints
-    #         con = JuMP.constraint_object(cref)
-    #         if con isa JuMP.ScalarConstraint{<:Any, <:MOI.Interval}
-    #             # Create lower and upper bound constraints
-    #             lower_con = JuMP.build_constraint(error, con.func, 
-    #                 MOI.GreaterThan(con.set.lower))
-    #             upper_con = JuMP.build_constraint(error, con.func, 
-    #                 MOI.LessThan(con.set.upper))
-    #             # Create new disjunct constraints
-    #             JuMP.add_constraint(model,_DisjunctConstraint(lower_con, d))
-    #             JuMP.add_constraint(model,_DisjunctConstraint(upper_con, d))
-    #             JuMP.delete(model, cref)
-    #         end 
-    #     end
-    # end
     for d in disj.indicators
         method.conlvref = [x for x in disj.indicators if x != d]
         _reformulate_disjunct(model, ref_cons, d, method)
