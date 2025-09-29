@@ -175,6 +175,7 @@ The following reformulation methods are currently supported:
 4. [MBM](https://doi.org/10.1016/j.compchemeng.2015.02.013): The multiple big-m method creates multiple M values for each disjunct constraint. The 'MBM' struct is created with the following required argument:
 
     - `optimizer`: Optimizer to use when solving subproblems to determine M values. This is a required value.
+    - `default_M`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
 
 ## Release Notes
 
