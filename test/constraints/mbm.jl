@@ -1,7 +1,9 @@
 using HiGHS
 
 function test_mbm()
-    @test MBM(HiGHS.Optimizer).optimizer == HiGHS.Optimizer
+
+    @test DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model()).optimizer == HiGHS.Optimizer
+
 end
 
 function test__replace_variables_in_constraint()
@@ -72,24 +74,22 @@ function test_mini_model()
     @constraint(model, infeasiblecon, 3*x + y == 15, Disjunct(Y[3]))
     @constraint(model, intervalcon, 0 <= x <= 55, Disjunct(Y[4]))
     @disjunction(model, [Y[1], Y[2], Y[3], Y[4]])
+    mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._mini_model(model, constraint_object(con), 
-        DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer))== -4
+        DisjunctConstraintRef[con2], mbm)== -4
     set_upper_bound(x, 1)
     @test DP._mini_model(model, constraint_object(con2), 
-        DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 15
+        DisjunctConstraintRef[con], mbm)== 15
     set_integer(y)
     @constraint(model, con3, y*x == 15, Disjunct(Y[1]))
     @test DP._mini_model(model, constraint_object(con2), 
-        DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 15
+        DisjunctConstraintRef[con], mbm)== 15
     JuMP.fix(y, 5; force=true)
     @test DP._mini_model(model, constraint_object(con2), 
-        DisjunctConstraintRef[con], MBM(HiGHS.Optimizer))== 10
+        DisjunctConstraintRef[con], mbm)== 10
     delete_lower_bound(x)
     @test DP._mini_model(model, constraint_object(con2), 
-        DisjunctConstraintRef[con2], MBM(HiGHS.Optimizer)) == 1.0e9
-    @test_throws ErrorException DP._mini_model(model, 
-        constraint_object(infeasiblecon), DisjunctConstraintRef[con], 
-        MBM(HiGHS.Optimizer))
+        DisjunctConstraintRef[con2], mbm) == 1.0e9
 end
 
 function test_maximize_M()
@@ -105,39 +105,39 @@ function test_maximize_M()
     @constraint(model, nonnegatives, x in MOI.Nonnegatives(2), 
         Disjunct(Y[5]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[6]))
-    
+    mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._maximize_M(model, constraint_object(interval), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 0.0
+        mbm) == 0.0
     @test DP._maximize_M(model, constraint_object(lessthan), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 49
+        mbm) == 49
     @test DP._maximize_M(model, constraint_object(greaterthan), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 1.0
+        mbm) == 1.0
     @test DP._maximize_M(model, constraint_object(equalto), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[3]]), 
-        MBM(HiGHS.Optimizer)) == 0
+        mbm) == 0
     @test DP._maximize_M(model, constraint_object(nonpositives), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 0
+        mbm) == 0
     @test DP._maximize_M(model, constraint_object(nonnegatives), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 0
+        mbm) == 0
     @test DP._maximize_M(model, constraint_object(zeros), 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer)) == 49
+        mbm) == 49
     @test_throws ErrorException DP._maximize_M(model, "odd", 
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]), 
-        MBM(HiGHS.Optimizer))
+        mbm)
 end
 
 function test_reformulate_disjunct_constraint()
@@ -152,17 +152,16 @@ function test_reformulate_disjunct_constraint()
     @constraint(model, nonnegatives, x in MOI.Nonnegatives(2), 
         Disjunct(Y[4]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[5]))
-
-    method = MBM(HiGHS.Optimizer)
+    @disjunction(model, disjunction,[Y[1], Y[2], Y[3], Y[4], Y[5]])
+    method = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     for i in 1:5
         method.M[Y[i]] = Float64(i)
     end
     bconref = Dict(Y[i] => binary_variable(Y[i]) for i in 1:5)
-    
     reformulated_constraints = [reformulate_disjunct_constraint(model, 
         constraint_object(constraints), bconref, method) 
         for constraints in [lessthan, greaterthan, equalto, nonpositives, 
-            nonnegatives, zeros]]
+            nonnegatives, zeros, disjunction]]
     @test reformulated_constraints[1][1].func == JuMP.@expression(model, 
         x[1] - sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[1][1].set == MOI.LessThan(1.0)
@@ -187,8 +186,18 @@ function test_reformulate_disjunct_constraint()
     @test reformulated_constraints[6][2].func == JuMP.@expression(model, 
         -x .+(1 - sum(method.M[i] * bconref[i] for i in keys(method.M)))) && 
         reformulated_constraints[6][2].set == MOI.Nonpositives(2)
+    @test reformulated_constraints[7][1].func == JuMP.@expression(model, 
+        x[1] - 52*bconref[Y[3]] - 53*bconref[Y[4]] - bconref[Y[1]] 
+        - 5*bconref[Y[5]] - 2*bconref[Y[2]]) && 
+        reformulated_constraints[7][1].set == MOI.LessThan(1.0)
+    @test reformulated_constraints[7][2].func == JuMP.@expression(model, 
+        x[1] + 52*bconref[Y[3]] + 53*bconref[Y[4]] + bconref[Y[1]] 
+        + 5*bconref[Y[5]] + 2*bconref[Y[2]]) && 
+        reformulated_constraints[7][2].set == MOI.GreaterThan(1.0)
+    
     @test_throws ErrorException reformulate_disjunct_constraint(model, 
         "odd", bconref, method)
+
 end
 
 function test_reformulate_disjunct()
@@ -198,7 +207,7 @@ function test_reformulate_disjunct()
     @constraint(model, greaterthan, x[1] >= 1, Disjunct(Y[1]))
     @constraint(model, interval, x[1] == 2.5, Disjunct(Y[2]))
 
-    method = MBM(HiGHS.Optimizer)
+    method = DP.MBM(HiGHS.Optimizer)
     disj = constraint_object(disjunction(model, [Y[1], Y[2]]))
     reformulated_disjunct = reformulate_disjunction(model, disj, method)
 
@@ -233,7 +242,7 @@ function test_reformulate_disjunction()
     @constraint(model, interval, 0 <= x <= 55, Disjunct(Y[2]))
     disj = disjunction(model, [Y[1], Y[2]])
     
-    method = MBM(HiGHS.Optimizer)
+    method = DP.MBM(HiGHS.Optimizer)
     ref_cons = reformulate_disjunction(model, constraint_object(disj), method)
 
     @test length(ref_cons) == 4

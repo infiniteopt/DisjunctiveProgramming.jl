@@ -374,20 +374,30 @@ A type for using the multiple big-M reformulation approach for disjunctive const
 
 **Fields**
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
-- `M::Dict{L, T}`: Dictionary of big-M values for each logical variable.
-- `conlvref::Vector{L}`: Vector of other logical variables in the current disjunction.
-- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable.
+- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
 """
-mutable struct MBM{O, T, L <: LogicalVariableRef} <: AbstractReformulationMethod
+mutable struct MBM{O, T} <: AbstractReformulationMethod
     optimizer::O
-    M::Dict{L, T}
-    conlvref::Vector{L}
     default_M::T
     
     # Constructor with optimizer (required) and optional default_M
-    function MBM(optimizer::O, ::Type{T} = Float64, default_M::T = T(1e9)) where {O, T}
-        L = LogicalVariableRef
-        new{O, T, L}(optimizer, Dict{L, T}(), L[], default_M)
+    function MBM(optimizer::O, default_M::T = 1e9) where {O, T}
+        new{O, T}(optimizer, default_M)
+    end
+end
+
+mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
+    optimizer::O
+    M::Dict{LogicalVariableRef{M}, T}                        
+    default_M::T                            
+    conlvref::Vector{LogicalVariableRef{M}}                  
+
+    function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
+        new{O, T, M}(method.optimizer,
+            Dict{LogicalVariableRef{M}, T}(), 
+            method.default_M,
+            Vector{LogicalVariableRef{M}}()                               
+        )
     end
 end
 
