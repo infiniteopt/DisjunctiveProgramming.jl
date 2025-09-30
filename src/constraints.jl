@@ -23,8 +23,6 @@ _vec_to_scalar_set(::_MOIExactly) = _MOI.EqualTo
 _vec_to_scalar_set(::_MOIAtLeast) = _MOI.GreaterThan
 _vec_to_scalar_set(::_MOIAtMost) = _MOI.LessThan
 
-
-
 ################################################################################
 #                         BOILERPLATE EXTENSION METHODS
 ################################################################################
