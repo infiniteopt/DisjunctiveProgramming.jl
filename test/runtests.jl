@@ -1,7 +1,6 @@
 import DisjunctiveProgramming as DP
 using DisjunctiveProgramming
 using Test
-
 include("utilities.jl")
 
 # RUN ALL THE TESTS
@@ -10,10 +9,12 @@ include("model.jl")
 include("jump.jl")
 include("variables/query.jl")
 include("variables/logical.jl")
+include("variables/creation.jl")
 include("constraints/selector.jl")
 include("constraints/proposition.jl")
 include("constraints/disjunct.jl")
 include("constraints/indicator.jl")
+include("constraints/mbm.jl")
 include("constraints/bigm.jl")
 include("constraints/psplit.jl")
 include("constraints/hull.jl")

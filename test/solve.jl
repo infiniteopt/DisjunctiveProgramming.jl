@@ -27,7 +27,6 @@ function test_linear_gdp_example(m, use_complements = false)
     @test value(Y[2])
     @test !value(W[1])
     @test !value(W[2])
-
     @test optimize!(m, gdp_method = Hull()) isa Nothing
     @test termination_status(m) == MOI.OPTIMAL
     @test objective_value(m) ≈ 11
@@ -46,6 +45,16 @@ function test_linear_gdp_example(m, use_complements = false)
         @test value(variable_by_name(m, "x[2]_Y[1]")) ≈ 0
         @test value(variable_by_name(m, "x[2]_Y[2]")) ≈ 2
     end
+
+    @test optimize!(m, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(m) == MOI.OPTIMAL
+    @test objective_value(m) ≈ 11
+    @test value.(x) ≈ [9,2]
+    @test !value(Y[1])
+    @test value(Y[2])
+    @test !value(W[1])
+    @test !value(W[2])
+
 end
 
 function test_generic_model(m)
