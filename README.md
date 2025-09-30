@@ -172,6 +172,11 @@ The following reformulation methods are currently supported:
 
 3. [Indicator](https://jump.dev/JuMP.jl/stable/manual/constraints/#Indicator-constraints): This method reformulates each disjunct constraint into an indicator constraint with the Boolean reformulation counterpart of the Logical variable used to define the disjunct constraint.
 
+4. [MBM](https://doi.org/10.1016/j.compchemeng.2015.02.013): The multiple big-m method creates multiple M values for each disjunct constraint. The 'MBM' struct is created with the following required argument:
+
+    - `optimizer`: Optimizer to use when solving subproblems to determine M values. This is a required value.
+    - `default_M`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+
 ## Release Notes
 
 Prior to `v0.4.0`, the package did not leverage the JuMP extension capabilities and was not as robust. For these earlier releases, refer to [Perez, Joshi, and Grossmann, 2023](https://arxiv.org/abs/2304.10492v1) and the following [JuliaCon 2022 Talk](https://www.youtube.com/watch?v=AMIrgTTfUkI).

@@ -6,7 +6,6 @@ Reexport.@reexport using JuMP
 
 # Use Meta for metaprogramming
 using Base.Meta
-
 # Create aliases
 import JuMP.MOI as _MOI
 import JuMP.MOIU.CleverDicts as _MOIUC
@@ -22,8 +21,10 @@ include("macros.jl")
 include("reformulate.jl")
 include("bigm.jl")
 include("hull.jl")
+include("mbm.jl")
 include("indicator.jl")
 include("print.jl")
+include("utilities.jl")
 
 # Define additional stuff that should not be exported
 const _EXCLUDE_SYMBOLS = [Symbol(@__MODULE__), :eval, :include]

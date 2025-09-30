@@ -368,6 +368,40 @@ struct BigM{T} <: AbstractReformulationMethod
 end
 
 """
+    MBM{O, T, L <: LogicalVariableRef} <: AbstractReformulationMethod
+
+A type for using the multiple big-M reformulation approach for disjunctive constraints.
+
+**Fields**
+- `optimizer::O`: Optimizer to use when solving mini-models (required).
+- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+"""
+mutable struct MBM{O, T} <: AbstractReformulationMethod
+    optimizer::O
+    default_M::T
+    
+    # Constructor with optimizer (required) and optional default_M
+    function MBM(optimizer::O, default_M::T = 1e9) where {O, T}
+        new{O, T}(optimizer, default_M)
+    end
+end
+
+mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
+    optimizer::O
+    M::Dict{LogicalVariableRef{M}, T}                        
+    default_M::T                            
+    conlvref::Vector{LogicalVariableRef{M}}                  
+
+    function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
+        new{O, T, M}(method.optimizer,
+            Dict{LogicalVariableRef{M}, T}(), 
+            method.default_M,
+            Vector{LogicalVariableRef{M}}()                               
+        )
+    end
+end
+
+"""
     Hull{T} <: AbstractReformulationMethod
 
 A type for using the convex hull reformulation approach for disjunctive 
