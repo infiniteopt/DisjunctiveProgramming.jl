@@ -118,8 +118,6 @@ function test_quadratic_gdp_example(use_complements = false)
     @test !value(W[2])
 end
 
-
-
 function test_generic_model(m)
     set_attribute(m, MOI.Silent(), true)
     @variable(m, 1 ≤ x[1:2] ≤ 9)
