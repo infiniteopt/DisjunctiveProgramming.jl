@@ -3,7 +3,6 @@ function test_psplit()
     @variable(model, x[1:4])
     method = PSplit([[x[1], x[2]], [x[3], x[4]]])
     @test method.partition == [[x[1], x[2]], [x[3], x[4]]]
-    # Throw error when partition isnt set up!
 end
 
 function test_build_partitioned_expression()
@@ -11,7 +10,6 @@ function test_build_partitioned_expression()
     @variable(model, x[1:4])
     partition_variables = [x[1], x[4]]
     
-    # Test data
     test_cases = [
         (expr = 1.0 * x[1] - 2.0 * x[2], expected = (1.0 * x[1], 0.0)),
         (expr = x[1] * x[1] + 2.0 * x[1] * x[1] + 3.0 * x[2] * x[2], 
@@ -21,13 +19,11 @@ function test_build_partitioned_expression()
         (expr = 4.0, expected = (4.0, 0.0))
     ]
 
-    # Run tests
     for (i, test_case) in enumerate(test_cases)
         result = DP._build_partitioned_expression(test_case.expr, partition_variables)
         @test result == test_case.expected
     end
 
-    # Test error case
     @test_throws ErrorException DP._build_partitioned_expression(
         "Bad Input", 
         partition_variables
@@ -139,7 +135,6 @@ function test_reformulate_disjunct_constraint_affexpr()
         variable_by_name(model, "v_$(hash(interval))_2_1") * y[2] - 
         0.5 * y[2]
 
-    # Array literals broken into multiple lines for better readability
     @test ref_nn[1].func == [
         -x[1] - variable_by_name(model, "v_$(hash(nn))_1_1"),
         -x[2] - variable_by_name(model, "v_$(hash(nn))_1_2"),
@@ -219,7 +214,6 @@ function test_reformulate_disjunct()
     ref_cons1 = Vector{JuMP.AbstractConstraint}()
     ref_cons2 = Vector{JuMP.AbstractConstraint}()
     
-    # Create constraints
     good_quad = @constraint(model, x[1]^2 + x[2]^2 <= 1, Disjunct(W[2]))
     good_quad2 = @constraint(model, x[3]^2 + x[4]^2 <= 1, Disjunct(W[2]))
     affexpr = @constraint(model, x[1] + x[2] <= 1, Disjunct(W[1]))

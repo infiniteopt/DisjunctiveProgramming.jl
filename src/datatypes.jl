@@ -420,7 +420,7 @@ end
 """
     PSplit <: AbstractReformulationMethod
 
-A type for using the p-split reformulation approach for disjunctive 
+A type for using the P-split reformulation approach for disjunctive 
 constraints.
 
 **Fields**

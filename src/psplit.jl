@@ -199,12 +199,16 @@ function _reformulate_disjunct(
                 by the PSplit reformulation.")
             elseif con.func isa JuMP.GenericQuadExpr
                 quadexpr = con.func
-                all_same_variable = all(pair -> first(pair).a == first(pair).b, quadexpr.terms)
+                all_same_variable = all(pair -> first(pair).a == first(pair).b,
+                quadexpr.terms
+                )
                 !all_same_variable && error("PSplit reformulation only supports 
                 quadratic constraints where all terms have the same variables.")
             end
         end
-        append!(ref_cons, reformulate_disjunct_constraint(model, con, bvref, method))
+        append!(ref_cons, 
+        reformulate_disjunct_constraint(model, con, bvref, method)
+        )
     end
     return
 end

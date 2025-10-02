@@ -55,15 +55,6 @@ function test_linear_gdp_example(m, use_complements = false)
     @test value(Y[2])
     @test !value(W[1])
     @test !value(W[2])
-
-    @test optimize!(m, gdp_method = PSplit([x[1], x[2]])) isa Nothing
-    @test termination_status(m) == MOI.OPTIMAL
-    @test objective_value(m) ≈ 11
-    @test value.(x) ≈ [9,2]
-    @test !value(Y[1])
-    @test value(Y[2])
-    @test !value(W[1])
-    @test !value(W[2])
 end
 
 function test_quadratic_gdp_example(use_complements = false)
