@@ -1,7 +1,5 @@
 using HiGHS, Ipopt, Juniper
 function test_linear_gdp_example(m, use_complements = false)
-
-    
     set_attribute(m, MOI.Silent(), true)
     @variable(m, 1 ≤ x[1:2] ≤ 9)
     if use_complements
@@ -96,7 +94,6 @@ function test_quadratic_gdp_example(use_complements = false)
     @test value(Y[2])
     @test !value(W[1]) 
     @test !value(W[2])
-
 
     @test optimize!(m, gdp_method = MBM(optimizer)) isa Nothing
     @test termination_status(m) in [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
