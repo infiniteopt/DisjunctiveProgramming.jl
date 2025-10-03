@@ -13,7 +13,7 @@ JuMP = "1.18"
 Reexport = "1"
 julia = "1.6"
 Juniper = "0.9.3"
-Ipopt = "1.11.0"
+Ipopt = "1.9.0"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
