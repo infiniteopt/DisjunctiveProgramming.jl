@@ -418,7 +418,7 @@ struct Hull{T} <: AbstractReformulationMethod
 end
 
 """
-    PSplit <: AbstractReformulationMethod
+    PSplit {V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
 
 A type for using the P-split reformulation approach for disjunctive 
 constraints.

@@ -9,7 +9,7 @@ function _build_partitioned_expression(
     constant = JuMP.constant(expr)
     new_affexpr = zero(T)
     for var in partition_variables
-        JuMP.add_to_expression!(new_affexpr, coefficient(expr, var), var) 
+        JuMP.add_to_expression!(new_affexpr, JuMP.coefficient(expr, var), var) 
     end
     return new_affexpr, constant
 end
@@ -24,7 +24,11 @@ function _build_partitioned_expression(
         for (pair, coeff) in expr.terms
             if pair.a == var && pair.b == var
                 JuMP.add_to_expression!(new_quadexpr, coeff, var, var)
+            else
+                error("PSplit reformulation only supports quadratic constraints 
+                where all terms have the same variables.")
             end
+            
         end
     end
     new_aff, _ = _build_partitioned_expression(expr.aff, partition_variables)
@@ -57,10 +61,9 @@ end
 function _bound_auxiliary(
     model::JuMP.AbstractModel,
     v::JuMP.AbstractVariableRef,
-    func::JuMP.GenericAffExpr,
+    func::JuMP.GenericAffExpr{T,V},
     method::PSplit
-)   
-    T = JuMP.value_type(typeof(model))
+) where {T,V}
     lower_bound = zero(T)
     upper_bound = zero(T)
     for (var, coeff) in func.terms
@@ -86,16 +89,15 @@ function _bound_auxiliary(
     func::Number,
     method::PSplit
 ) 
-    #Do nothing?
+    return
 end
 
 function _bound_auxiliary(
     model::JuMP.AbstractModel,
     v::JuMP.AbstractVariableRef,
-    func::JuMP.GenericQuadExpr,
+    func::JuMP.GenericQuadExpr{T,V},
     method::PSplit
-) 
-    T = JuMP.value_type(typeof(model))
+) where {T,V}
     lower_bound = zero(T)
     upper_bound = zero(T)
     
@@ -145,12 +147,12 @@ function _bound_auxiliary(
 end
 
 function _bound_auxiliary(
-    model::JuMP.AbstractModel,
+    model::M,
     v::JuMP.AbstractVariableRef,
     func::JuMP.AbstractVariableRef,
     method::PSplit
-) 
-    T = JuMP.value_type(typeof(model))
+) where {M <: JuMP.AbstractModel} 
+    T = JuMP.value_type(M)
     lower_bound = zero(T)
     upper_bound = zero(T)   
     if func != v
@@ -213,16 +215,17 @@ function _reformulate_disjunct(
     return
 end
 
+
 ################################################################################
 #                              REFORMULATE DISJUNCT CONSTRAINT
 ################################################################################
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel,
+    model::M,
     con::JuMP.ScalarConstraint{T, S},
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::PSplit
-) where {T, S <: _MOI.LessThan}
-    val_type = JuMP.value_type(typeof(model))
+) where {M <: JuMP.AbstractModel, T, S <: _MOI.LessThan}
+    val_type = JuMP.value_type(M)
     p = length(method.partition)
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
@@ -241,12 +244,12 @@ function reformulate_disjunct_constraint(
 end
 
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel,
+    model::M,
     con::JuMP.ScalarConstraint{T, S},
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::PSplit
-) where {T, S <: _MOI.GreaterThan}
-    val_type = JuMP.value_type(typeof(model))
+) where {M <: JuMP.AbstractModel, T, S <: _MOI.GreaterThan}
+    val_type = JuMP.value_type(M)
     p = length(method.partition)
     reform_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
@@ -265,12 +268,12 @@ function reformulate_disjunct_constraint(
 end
 
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel,
+    model::M,
     con::JuMP.ScalarConstraint{T, S},
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::PSplit
-) where {T, S <: Union{_MOI.Interval, _MOI.EqualTo}}
-    val_type = JuMP.value_type(typeof(model))
+) where {M <: JuMP.AbstractModel, T, S <: Union{_MOI.Interval, _MOI.EqualTo}}
+    val_type = JuMP.value_type(M)
     p = length(method.partition)
     reform_con_lt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
     reform_con_gt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
