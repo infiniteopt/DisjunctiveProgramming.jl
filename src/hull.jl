@@ -22,14 +22,14 @@ function _disaggregate_variables(
     end
 end
 function _disaggregate_variable(
-    model::JuMP.AbstractModel, 
+    model::M, 
     lvref::LogicalVariableRef, 
     vref::JuMP.AbstractVariableRef, 
     method::_Hull
-    )
+    ) where {M <: JuMP.AbstractModel}
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
-    T = JuMP.value_type(typeof(model))
+    T = JuMP.value_type(M)
     info = JuMP.VariableInfo(
         true,      # has_lb = true
         lb,        # lower_bound = lb
@@ -70,8 +70,16 @@ function _aggregate_variable(
     method::_Hull
     )
     JuMP.is_binary(vref) && return #skip binary variables
-    con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
-    push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
+    # con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
+    # push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
+
+    expr = JuMP.AffExpr(0.0)
+    JuMP.add_to_expression!(expr, -1.0, vref)
+    for dv in method.disjunction_variables[vref]
+        JuMP.add_to_expression!(expr, 1.0, dv)
+    end
+    
+    push!(ref_cons, JuMP.build_constraint(error, expr, _MOI.EqualTo(0)))
     return 
 end
 

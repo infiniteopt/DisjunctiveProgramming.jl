@@ -417,6 +417,20 @@ struct Hull{T} <: AbstractReformulationMethod
     end
 end
 
+# temp struct to store variable disaggregations (reset for each disjunction)
+mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationMethod
+    value::T
+    disjunction_variables::Dict{V, Vector{V}}
+    disjunct_variables::Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}
+    function _Hull(method::Hull{T}, vrefs::Set{V}) where {T, V <: JuMP.AbstractVariableRef}
+        new{V, T}(
+            method.value,
+            Dict{V, Vector{V}}(vref => V[] for vref in vrefs), 
+            Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}()
+        )
+    end
+end
+
 """
     PSplit <: AbstractReformulationMethod
 
@@ -435,15 +449,15 @@ struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
 end
 
 # temp struct to store variable disaggregations (reset for each disjunction)
-mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationMethod
-    value::T
-    disjunction_variables::Dict{V, Vector{V}}
-    disjunct_variables::Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}
-    function _Hull(method::Hull{T}, vrefs::Set{V}) where {T, V <: JuMP.AbstractVariableRef}
-        new{V, T}(
-            method.value,
-            Dict{V, Vector{V}}(vref => V[] for vref in vrefs), 
-            Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}()
+mutable struct _PSplit{V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
+    partition::Vector{Vector{V}}
+    partitioned_constraints::Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}
+    hull::_Hull
+    function _PSplit(method::PSplit{V}, model::M) where {V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel}
+        new{V, M}(
+            method.partition, 
+            Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}(), 
+            _Hull(Hull(), Set{V}())
         )
     end
 end
