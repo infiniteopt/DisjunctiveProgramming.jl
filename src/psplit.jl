@@ -202,6 +202,7 @@ function reformulate_disjunction(model::JuMP.AbstractModel, disj::Disjunction, m
     psplit = _PSplit(method, model)
     psplit.hull = _Hull(Hull(), disj_vrefs)
     psplit.partitioned_constraints = partitioned_constraints
+    #TODO: Copy over _disaggregate_variables from Hull
     for d in disj.indicators
         _disaggregate_variables(model, d, disj_vrefs, psplit.hull)
         _reformulate_disjunct(model, ref_cons, d, psplit)
