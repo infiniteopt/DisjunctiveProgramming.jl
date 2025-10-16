@@ -451,7 +451,7 @@ end
 # temp struct to store variable disaggregations (reset for each disjunction)
 mutable struct _PSplit{V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
     partition::Vector{Vector{V}}
-    partitioned_constraints::Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}
+    sum_constraints::Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}
     hull::_Hull
     function _PSplit(method::PSplit{V}, model::M) where {V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel}
         new{V, M}(

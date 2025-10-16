@@ -143,8 +143,8 @@ function _bound_auxiliary(
     
     # Add constant term
     const_term = func.aff.constant
-    lower_bound += const_term
-    upper_bound += const_term
+    # lower_bound += const_term
+    # upper_bound += const_term
     
     JuMP.set_lower_bound(v, lower_bound)
     JuMP.set_upper_bound(v, upper_bound)
@@ -172,9 +172,9 @@ function _bound_auxiliary(
     _variable_bounds(model)[v] = set_variable_bound_info(v, method)
 end
 
-requires_variable_bound_info(method::PSplit) = true
+requires_variable_bound_info(method::Union{PSplit, _PSplit}) = true
 
-function set_variable_bound_info(vref::JuMP.AbstractVariableRef, ::PSplit)
+function set_variable_bound_info(vref::JuMP.AbstractVariableRef, ::Union{PSplit, _PSplit})
     if !has_lower_bound(vref) || !has_upper_bound(vref)
         error("Variable $vref must have both lower and upper bounds defined when
          using the PSplit reformulation."
@@ -193,22 +193,30 @@ end
 function reformulate_disjunction(model::JuMP.AbstractModel, disj::Disjunction, method::PSplit{V}) where {V <: JuMP.AbstractVariableRef}
     ref_cons = Vector{JuMP.AbstractConstraint}() #store reformulated constraints
     disj_vrefs = _get_disjunction_variables(model, disj)
-    partitioned_constraints = Dict{LogicalVariableRef, Vector{<:JuMP.AbstractConstraint}}()
+    sum_constraints = Dict{LogicalVariableRef, Vector{<:JuMP.AbstractConstraint}}()
+    aux_vars = Set{V}()
     for d in disj.indicators
-        partitioned_constraints[d], aux_vars = _partition_disjunct(model, d, method)
-        disj_vrefs = union(disj_vrefs, aux_vars)
+        partitioned_constraints, sum_constraints[d], vars = _partition_disjunct(model, d, method)
+        append!(ref_cons, partitioned_constraints)
+        union!(aux_vars, vars)
     end
-    #TODO: This can probably be done more efficiently?
     psplit = _PSplit(method, model)
-    psplit.hull = _Hull(Hull(), disj_vrefs)
-    psplit.partitioned_constraints = partitioned_constraints
+    psplit.hull = _Hull(Hull(), union(disj_vrefs, aux_vars))
+    psplit.sum_constraints = sum_constraints
     #TODO: Copy over _disaggregate_variables from Hull
     for d in disj.indicators
-        _disaggregate_variables(model, d, disj_vrefs, psplit.hull)
+        bvref = binary_variable(d)
+        for vref in disj_vrefs
+            if JuMP.is_binary(vref) 
+                continue # skip variables that don't require dissagregation
+            end
+            push!(psplit.hull.disjunction_variables[vref], vref)
+            psplit.hull.disjunct_variables[vref, bvref] = vref
+        end
+        _disaggregate_variables(model, d, aux_vars, psplit.hull)
         _reformulate_disjunct(model, ref_cons, d, psplit)
     end
-
-    for vref in disj_vrefs
+    for vref in aux_vars
         _aggregate_variable(model, ref_cons, vref, psplit.hull)
     end
     return ref_cons
@@ -226,8 +234,8 @@ function _reformulate_disjunct(
     )
     #reformulate each constraint and add to the model
     bvref = binary_variable(lvref)
-    haskey(method.partitioned_constraints, lvref) || return
-    constraints = method.partitioned_constraints[lvref]
+    haskey(method.sum_constraints, lvref) || return
+    constraints = method.sum_constraints[lvref]
     for con in constraints
         append!(ref_cons, reformulate_disjunct_constraint(model, con, bvref, method.hull))
     end
@@ -238,16 +246,18 @@ function _partition_disjunct(model::M, lvref::LogicalVariableRef, method::PSplit
     !haskey(_indicator_to_constraints(model), lvref) && return #skip if disjunct is empty
     
     partitioned_constraints = Vector{AbstractConstraint}()
+    sum_constraints = Vector{AbstractConstraint}()
     aux_vars = Set{JuMP.AbstractVariableRef}()
     for cref in _indicator_to_constraints(model)[lvref] 
         con = JuMP.constraint_object(cref)
         if !(con isa Disjunction)
-            p_constraint, new_aux_vars = _build_partitioned_constraint(model, con, method)
+            p_constraint, sum_constraint, new_aux_vars = _build_partitioned_constraint(model, con, method)
             append!(partitioned_constraints, p_constraint)
+            append!(sum_constraints, sum_constraint)
             union!(aux_vars, new_aux_vars)   
         end
     end
-    return partitioned_constraints, aux_vars
+    return partitioned_constraints, sum_constraints, aux_vars
 end
 
 # ################################################################################
@@ -262,7 +272,7 @@ function _build_partitioned_constraint(
     p = length(method.partition)
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
-    part_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
+    part_con = Vector{JuMP.AbstractConstraint}(undef, p)
     for i in 1:p
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
         part_con[i] = JuMP.build_constraint(error, func - v[i], 
@@ -270,10 +280,11 @@ function _build_partitioned_constraint(
         )
         _bound_auxiliary(model, v[i], func, method)
     end
-    part_con[end] = JuMP.build_constraint(error, sum(v[i] for i in 1:p) 
+    sum_con = JuMP.build_constraint(error, sum(v[i] for i in 1:p) 
     ,MOI.LessThan(con.set.upper - constant)
     )
-    return part_con, v
+
+    return part_con, [sum_con], v
 end
 
 function _build_partitioned_constraint(
@@ -283,7 +294,7 @@ function _build_partitioned_constraint(
 ) where {M <: JuMP.AbstractModel, T, S <: _MOI.GreaterThan}
     val_type = JuMP.value_type(M)
     p = length(method.partition)
-    part_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
+    part_con = Vector{JuMP.AbstractConstraint}(undef, p)
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)") for i in 1:p]
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
     for i in 1:p
@@ -293,10 +304,10 @@ function _build_partitioned_constraint(
         )
         _bound_auxiliary(model, v[i], -func, method)
     end
-    part_con[end] = JuMP.build_constraint(error, sum(v[i] for i in 1:p) 
+    sum_con = JuMP.build_constraint(error, sum(v[i] for i in 1:p) 
     , MOI.LessThan(-con.set.lower + constant)
     )
-    return part_con, v
+    return part_con, [sum_con], v
 end
 
 function _build_partitioned_constraint(
@@ -306,8 +317,8 @@ function _build_partitioned_constraint(
 ) where {M <: JuMP.AbstractModel, T, S <: Union{_MOI.Interval, _MOI.EqualTo}}
     val_type = JuMP.value_type(M)
     p = length(method.partition)
-    part_con_lt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
-    part_con_gt = Vector{JuMP.AbstractConstraint}(undef, p + 1)
+    part_con_lt = Vector{JuMP.AbstractConstraint}(undef, p)
+    part_con_gt = Vector{JuMP.AbstractConstraint}(undef, p)
     #let [_, 1] be the upper bound and [_, 2] be the lower bound
     _, constant = _build_partitioned_expression(con.func, method.partition[p]) 
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:2]
@@ -323,13 +334,13 @@ function _build_partitioned_constraint(
         _bound_auxiliary(model, v[i,2], -func, method)
     end
     set_values = _set_values(con.set)
-    part_con_lt[end] = JuMP.build_constraint(error, sum(v[i,1] for i in 1:p), 
+    sum_con_lt = JuMP.build_constraint(error, sum(v[i,1] for i in 1:p), 
     MOI.LessThan((set_values[2] - constant))
     )
-    part_con_gt[end] = JuMP.build_constraint(error, sum(v[i,2] for i in 1:p), 
+    sum_con_gt = JuMP.build_constraint(error, sum(v[i,2] for i in 1:p), 
     MOI.LessThan(-set_values[1] + constant)
      )
-    return vcat(part_con_lt, part_con_gt), vec(v)
+    return vcat(part_con_lt, part_con_gt), [sum_con_lt, sum_con_gt], vec(v)
 end
 function _build_partitioned_constraint(
     model::M,
@@ -339,7 +350,7 @@ function _build_partitioned_constraint(
     p = length(method.partition)
     d = con.set.dimension
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
-    part_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
+    part_con = Vector{JuMP.AbstractConstraint}(undef, p)
     constants = Vector{Number}(undef, d)
     for i in 1:p
         part_expr = [_build_partitioned_expression(con.func[j],
@@ -357,8 +368,8 @@ function _build_partitioned_constraint(
     new_func = JuMP.@expression(model,[j = 1:d], 
     sum(v[i,j] for i in 1:p) + constants[j]
     )
-    part_con[end] = JuMP.build_constraint(error, new_func, _MOI.Nonpositives(d))
-    return vcat(part_con), vec(v)
+    sum_con = JuMP.build_constraint(error, new_func, _MOI.Nonpositives(d))
+    return part_con, [sum_con], vec(v)
 end
 
 function _build_partitioned_constraint(
@@ -369,7 +380,7 @@ function _build_partitioned_constraint(
     p = length(method.partition)
     d = con.set.dimension
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)") for i in 1:p, j in 1:d]
-    part_con = Vector{JuMP.AbstractConstraint}(undef, p + 1)
+    part_con = Vector{JuMP.AbstractConstraint}(undef, p)
     constants = Vector{Number}(undef, d)
     for i in 1:p
         part_expr = [_build_partitioned_expression(con.func[j], method.partition[i]) for j in 1:d]
@@ -383,8 +394,8 @@ function _build_partitioned_constraint(
     new_func = JuMP.@expression(model,[j = 1:d], 
     sum(v[i,j] for i in 1:p) + constants[j]
     )
-    part_con[end] = JuMP.build_constraint(error,new_func,_MOI.Nonpositives(d))
-    return vcat(part_con), vec(v)
+    sum_con = JuMP.build_constraint(error,new_func,_MOI.Nonpositives(d))
+    return part_con, [sum_con], vec(v)
 end
 
 function _build_partitioned_constraint(
@@ -394,8 +405,8 @@ function _build_partitioned_constraint(
 ) where {M <: JuMP.AbstractModel, T, S <: _MOI.Zeros, R}
     p = length(method.partition)
     d = con.set.dimension
-    part_con_np = Vector{JuMP.AbstractConstraint}(undef, p + 1)  # nonpositive (≤ 0)
-    part_con_nn = Vector{JuMP.AbstractConstraint}(undef, p + 1)  # nonnegative (≥ 0)
+    part_con_np = Vector{JuMP.AbstractConstraint}(undef, p)  # nonpositive (≤ 0)
+    part_con_nn = Vector{JuMP.AbstractConstraint}(undef, p)  # nonnegative (≥ 0)
     v = [@variable(model, base_name = "v_$(hash(con))_$(i)_$(j)_$(k)") 
     for i in 1:p, j in 1:d, k in 1:2
         ]
@@ -424,13 +435,13 @@ function _build_partitioned_constraint(
     new_func_nn = JuMP.@expression(model,[j = 1:d], 
     -sum(v[i,j,2] for i in 1:p) - constants[j]
     )
-    part_con_np[end] = JuMP.build_constraint(error, 
+    sum_con_np = JuMP.build_constraint(error, 
     new_func_np, _MOI.Nonpositives(d)
     )
-    part_con_nn[end] = JuMP.build_constraint(error, 
+    sum_con_nn = JuMP.build_constraint(error, 
     new_func_nn, _MOI.Nonpositives(d)
     )
-    return vcat(part_con_np, part_con_nn), vec(v)
+    return vcat(part_con_np, part_con_nn), vcat(sum_con_np, sum_con_nn), vec(v)
 end
 
 ################################################################################
