@@ -62,8 +62,7 @@ function _bound_auxiliary(
     v::JuMP.AbstractVariableRef,
     func::JuMP.GenericAffExpr{T,V},
     method::PSplit
-) where {M <: JuMP.AbstractModel}
-    T = JuMP.value_type(M)
+) where {M <: JuMP.AbstractModel, T, V}
 
     lower_bound = has_lower_bound(v) ? lower_bound(v) : zero(T)
     upper_bound = has_upper_bound(v) ? upper_bound(v) : zero(T)
@@ -103,8 +102,7 @@ function _bound_auxiliary(
     v::JuMP.AbstractVariableRef,
     func::JuMP.GenericQuadExpr{T,V},
     method::PSplit
-) where {M <: JuMP.AbstractModel}
-    T = JuMP.value_type(M)
+) where {M <: JuMP.AbstractModel, T, V}
     
     # Handle linear terms
     _bound_auxiliary(model, v, func.aff, method)
