@@ -54,6 +54,14 @@ function _build_partitioned_expression(
     return expr, zero(T)
 end
 
+function _build_partitioned_expression(
+    expr::T,
+    partition_variables::Vector{<:JuMP.AbstractVariableRef}
+) where {T <: JuMP.GenericNonlinearExpr}
+    error("P-Split does not currently support nonlinear expressions $(expr)")
+end
+
+
 ################################################################################
 #                              BOUND AUXILIARY
 ################################################################################

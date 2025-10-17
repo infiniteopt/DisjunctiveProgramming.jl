@@ -3,6 +3,12 @@ function test_psplit()
     @variable(model, x[1:4])
     method = PSplit([[x[1], x[2]], [x[3], x[4]]])
     @test method.partition == [[x[1], x[2]], [x[3], x[4]]]
+
+    method = PSplit(2, model)
+    @test length(method.partition) == 2
+    @test method.partition[1] == [x[1], x[2]]
+    @test method.partition[2] == [x[3], x[4]]
+
 end
 
 function test_build_partitioned_expression()
@@ -23,7 +29,10 @@ function test_build_partitioned_expression()
         result = DP._build_partitioned_expression(test_case.expr, partition_variables)
         @test result == test_case.expected
     end
-
+    @test_throws ErrorException DP._build_partitioned_expression(
+        exp(x[1]), 
+        partition_variables
+    )
     @test_throws ErrorException DP._build_partitioned_expression(
         "Bad Input", 
         partition_variables
