@@ -200,13 +200,9 @@ function reformulate_disjunction(model::JuMP.AbstractModel, disj::Disjunction, m
     psplit = _PSplit(method, model)
     psplit.hull = _Hull(Hull(), union(disj_vrefs, aux_vars))
     psplit.sum_constraints = sum_constraints
-    #TODO: Copy over _disaggregate_variables from Hull
     for d in disj.indicators
         bvref = binary_variable(d)
         for vref in disj_vrefs
-            if JuMP.is_binary(vref) 
-                continue # skip variables that don't require dissagregation
-            end
             push!(psplit.hull.disjunction_variables[vref], vref)
             psplit.hull.disjunct_variables[vref, bvref] = vref
         end

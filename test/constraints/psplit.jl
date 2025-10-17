@@ -4,10 +4,11 @@ function test_psplit()
     method = PSplit([[x[1], x[2]], [x[3], x[4]]])
     @test method.partition == [[x[1], x[2]], [x[3], x[4]]]
 
-    method = PSplit(2, model)
-    @test length(method.partition) == 2
+    method = PSplit(3, model)
+    @test length(method.partition) == 3
     @test method.partition[1] == [x[1], x[2]]
-    @test method.partition[2] == [x[3], x[4]]
+    @test method.partition[2] == [x[3]]
+    @test method.partition[3] == [x[4]]
 
 end
 
@@ -29,6 +30,11 @@ function test_build_partitioned_expression()
         result = DP._build_partitioned_expression(test_case.expr, partition_variables)
         @test result == test_case.expected
     end
+
+    @test_throws ErrorException DP._build_partitioned_expression(
+        x[1] * x[2], 
+        partition_variables
+    )
     @test_throws ErrorException DP._build_partitioned_expression(
         exp(x[1]), 
         partition_variables
@@ -77,7 +83,6 @@ function test_bound_auxiliary()
     @test_throws ErrorException DP._bound_auxiliary(model, v[3], nl, method)
 end
 
-# _build_partitioned_constraint
 
 function test_build_partitioned_constraint()
     model = GDPModel()
@@ -141,8 +146,6 @@ function test_build_partitioned_constraint()
         variable_by_name(model, "v_$(hash(interval))_1_1")
     @test ref_interval[2].func == x[3] - 
         variable_by_name(model, "v_$(hash(interval))_2_1")
-    #@test ref_interval[5].func == -x[1] - x[2] - 
-     #   variable_by_name(model, "v_$(hash(interval))_1_2")
     @test ref_interval[4].func == -x[3] - 
         variable_by_name(model, "v_$(hash(interval))_2_2")
     @test interval_sum[1].func == 
@@ -216,8 +219,6 @@ function test_build_partitioned_constraint()
     ]
 end
 
-# _partition_disjunct
-
 function test_partition_disjunct()
     model = GDPModel()
     @variable(model, 0<= x[1:4] <= 10)
@@ -241,7 +242,6 @@ function test_partition_disjunct()
     @test aux_vars == Set{JuMP.AbstractVariableRef}([variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_1"), variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_2")])
 end
 
-# reformulate_disjunction
 function test_reformulate_disjunction()
     model = GDPModel()
     @variable(model, 0 <= x[1:4] <= 1)

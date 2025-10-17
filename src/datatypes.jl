@@ -452,25 +452,27 @@ struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
     end
 
     function PSplit(n_parts::Int, model::JuMP.AbstractModel)
-        n_parts > 0 || error("Number of partitions must be positive, got $n_parts")
-        variables = collect(JuMP.all_variables(model))
-        n_vars = length(variables)
-        part_size = cld(n_vars, n_parts)
-        
-        # Create the partition by slicing the variables
-        partition = Vector{Vector{eltype(variables)}}()
-        for i in 1:n_parts
-            start_idx = (i-1) * part_size + 1
-            end_idx = min(i * part_size, n_vars)
-            if start_idx > n_vars
-                push!(partition, eltype(variables)[])
-            else
-                push!(partition, variables[start_idx:end_idx])
-            end
-        end
-        
-        # Call the outer constructor
-        return PSplit(partition)
+    n_parts > 0 || error("Number of partitions must be positive, got $n_parts")
+    variables = collect(JuMP.all_variables(model))
+    n_vars = length(variables)
+    
+    n_parts = min(n_parts, n_vars)
+    n_parts > 0 || error("No variables found in the model")
+    
+    base_size = n_vars ÷ n_parts
+    remaining = n_vars % n_parts
+    
+    partition = Vector{Vector{eltype(variables)}}()
+    start_idx = 1
+    
+    for i in 1:n_parts
+        part_size = i <= remaining ? base_size + 1 : base_size
+        end_idx = start_idx + part_size - 1
+        push!(partition, variables[start_idx:end_idx])
+        start_idx = end_idx + 1
+    end
+    
+    return PSplit(partition)
     end
 end
 

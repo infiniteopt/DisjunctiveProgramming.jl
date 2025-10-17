@@ -104,9 +104,7 @@ function test_quadratic_gdp_example(use_complements = false) #psplit does not wo
     @test !value(W[1]) 
     @test !value(W[2])
 
-    partition = [[x[1]], [x[2]]]
     @test optimize!(m, gdp_method = PSplit(2,m)) isa Nothing
-    # println(m)
     @test termination_status(m) in [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
     @test objective_value(m) ≈ 6.1237 atol=1e-3  
     @test value.(x) ≈ [4.0825, 2.0412] atol=1e-3 
