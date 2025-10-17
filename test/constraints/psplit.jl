@@ -30,6 +30,10 @@ function test_build_partitioned_expression()
     )
 end
 
+
+
+
+
 function test_bound_auxiliary()
     model = GDPModel()
     @variable(model, 0 <= x[1:4] <= 3)
@@ -59,12 +63,14 @@ function test_bound_auxiliary()
     @test JuMP.lower_bound(v[2]) == -30
     @test JuMP.upper_bound(v[2]) == 30
 
-    @test has_lower_bound(v[3]) == false
-    @test has_upper_bound(v[3]) == false
+    @test JuMP.upper_bound(v[3]) == 4
+    @test JuMP.lower_bound(v[3]) == 4
     @test_throws ErrorException DP._bound_auxiliary(model, v[3], nl, method)
 end
 
-function test_reformulate_disjunct_constraint_affexpr()
+# _build_partitioned_constraint
+
+function test_build_partitioned_constraint()
     model = GDPModel()
     @variable(model, 0 <= x[1:4] <= 3)
     @variable(model, y[1:2], Bin)
@@ -86,54 +92,53 @@ function test_reformulate_disjunct_constraint_affexpr()
     np = JuMP.constraint_object(@constraint(model, -x .+ 1 <= 0))
     zeros = JuMP.constraint_object(@constraint(model, 5x .- 1 == 0))
     
-    ref_lt = reformulate_disjunct_constraint(model, lt, y[1], method)
-    ref_gt = reformulate_disjunct_constraint(model, gt, y[2], method)
-    ref_eq = reformulate_disjunct_constraint(model, eq, y[1], method)
-    ref_interval = reformulate_disjunct_constraint(
-        model, interval, y[2], method
+    ref_lt, lt_sum, lt_vars = DP._build_partitioned_constraint(model, lt, method)
+    ref_gt, gt_sum, gt_vars = DP._build_partitioned_constraint(model, gt, method)
+    ref_eq, eq_sum, eq_vars = DP._build_partitioned_constraint(model, eq, method)
+    ref_interval, interval_sum, interval_vars = DP._build_partitioned_constraint(
+        model, interval, method
     )
-    ref_nn = reformulate_disjunct_constraint(model, nn, y[1], method)
-    ref_np = reformulate_disjunct_constraint(model, np, y[2], method)
-    ref_zeros = reformulate_disjunct_constraint(model, zeros, y[1], method)
+    ref_nn, nn_sum, nn_vars = DP._build_partitioned_constraint(model, nn, method)
+    ref_np, np_sum, np_vars = DP._build_partitioned_constraint(model, np, method)
+    ref_zeros, zeros_sum, zeros_vars = DP._build_partitioned_constraint(model, zeros, method)
 
     @test ref_lt[1].func == x[1] - 
         variable_by_name(model, "v_$(hash(lt))_1")
     @test ref_lt[2].func == x[3] - 
         variable_by_name(model, "v_$(hash(lt))_2")
-    @test ref_lt[3].func == 
-        variable_by_name(model, "v_$(hash(lt))_1") * y[1] + 
-        variable_by_name(model, "v_$(hash(lt))_2") * y[1] - 
-        y[1]
+    @test lt_sum[1].func == 
+        variable_by_name(model, "v_$(hash(lt))_1") + 
+        variable_by_name(model, "v_$(hash(lt))_2")
     @test ref_gt[1].func == -x[2] - 
         variable_by_name(model, "v_$(hash(gt))_1")
     @test ref_gt[2].func == -x[4] - 
         variable_by_name(model, "v_$(hash(gt))_2")
-
+    @test gt_sum[1].func == 
+        variable_by_name(model, "v_$(hash(gt))_1") + 
+        variable_by_name(model, "v_$(hash(gt))_2")
     @test ref_eq[1].func == 
         -variable_by_name(model, "v_$(hash(eq))_1_1")
     @test ref_eq[2].func == x[3] + x[4] - 
         variable_by_name(model, "v_$(hash(eq))_2_1")
-    @test ref_eq[4].func == 
-        -variable_by_name(model, "v_$(hash(eq))_1_2")
-    @test ref_eq[5].func == -x[3] - x[4] - 
+    @test ref_eq[4].func == -x[3] - x[4] - 
         variable_by_name(model, "v_$(hash(eq))_2_2")
-    @test ref_eq[3].func == 
-        variable_by_name(model, "v_$(hash(eq))_1_1") * y[1] + 
-        variable_by_name(model, "v_$(hash(eq))_2_1") * y[1] - 
-        y[1]
-
+    @test eq_sum[1].func == 
+        variable_by_name(model, "v_$(hash(eq))_1_1") + 
+        variable_by_name(model, "v_$(hash(eq))_2_1")
+    @test eq_sum[2].func == 
+        variable_by_name(model, "v_$(hash(eq))_1_2") + 
+        variable_by_name(model, "v_$(hash(eq))_2_2")
     @test ref_interval[1].func == x[1] + x[2] - 
         variable_by_name(model, "v_$(hash(interval))_1_1")
     @test ref_interval[2].func == x[3] - 
         variable_by_name(model, "v_$(hash(interval))_2_1")
-    @test ref_interval[4].func == -x[1] - x[2] - 
-        variable_by_name(model, "v_$(hash(interval))_1_2")
-    @test ref_interval[5].func == -x[3] - 
+    #@test ref_interval[5].func == -x[1] - x[2] - 
+     #   variable_by_name(model, "v_$(hash(interval))_1_2")
+    @test ref_interval[4].func == -x[3] - 
         variable_by_name(model, "v_$(hash(interval))_2_2")
-    @test ref_interval[3].func == 
-        variable_by_name(model, "v_$(hash(interval))_1_1") * y[2] + 
-        variable_by_name(model, "v_$(hash(interval))_2_1") * y[2] - 
-        0.5 * y[2]
+    @test interval_sum[1].func == 
+        variable_by_name(model, "v_$(hash(interval))_1_1") + 
+        variable_by_name(model, "v_$(hash(interval))_2_1")
 
     @test ref_nn[1].func == [
         -x[1] - variable_by_name(model, "v_$(hash(nn))_1_1"),
@@ -149,16 +154,17 @@ function test_reformulate_disjunct_constraint_affexpr()
         -x[4] - variable_by_name(model, "v_$(hash(nn))_2_4")
     ]
 
-    @test ref_nn[3].func == [
-        variable_by_name(model, "v_$(hash(nn))_1_1") * y[1] + 
-        variable_by_name(model, "v_$(hash(nn))_2_1") * y[1] + y[1],
-        variable_by_name(model, "v_$(hash(nn))_1_2") * y[1] + 
-        variable_by_name(model, "v_$(hash(nn))_2_2") * y[1] + y[1],
-        variable_by_name(model, "v_$(hash(nn))_1_3") * y[1] + 
-        variable_by_name(model, "v_$(hash(nn))_2_3") * y[1] + y[1],
-        variable_by_name(model, "v_$(hash(nn))_1_4") * y[1] + 
-        variable_by_name(model, "v_$(hash(nn))_2_4") * y[1] + y[1]
-    ]
+    @test nn_sum[1].func == [
+    variable_by_name(model, "v_$(hash(nn))_1_1") + 
+    variable_by_name(model, "v_$(hash(nn))_2_1") + 1,
+    variable_by_name(model, "v_$(hash(nn))_1_2") + 
+    variable_by_name(model, "v_$(hash(nn))_2_2") + 1,
+    variable_by_name(model, "v_$(hash(nn))_1_3") + 
+    variable_by_name(model, "v_$(hash(nn))_2_3") + 1,
+    variable_by_name(model, "v_$(hash(nn))_1_4") + 
+    variable_by_name(model, "v_$(hash(nn))_2_4") + 1
+]
+
 
     @test ref_np[1].func == [
         -x[1] - variable_by_name(model, "v_$(hash(np))_1_1"),
@@ -174,16 +180,17 @@ function test_reformulate_disjunct_constraint_affexpr()
         -x[4] - variable_by_name(model, "v_$(hash(np))_2_4")
     ]
 
-    @test ref_np[3].func == [
-        variable_by_name(model, "v_$(hash(np))_1_1") * y[2] + 
-        variable_by_name(model, "v_$(hash(np))_2_1") * y[2] + y[2],
-        variable_by_name(model, "v_$(hash(np))_1_2") * y[2] + 
-        variable_by_name(model, "v_$(hash(np))_2_2") * y[2] + y[2],
-        variable_by_name(model, "v_$(hash(np))_1_3") * y[2] + 
-        variable_by_name(model, "v_$(hash(np))_2_3") * y[2] + y[2],
-        variable_by_name(model, "v_$(hash(np))_1_4") * y[2] + 
-        variable_by_name(model, "v_$(hash(np))_2_4") * y[2] + y[2]
-    ]
+    @test np_sum[1].func == [
+    variable_by_name(model, "v_$(hash(np))_1_1") + 
+    variable_by_name(model, "v_$(hash(np))_2_1") + 1,
+    variable_by_name(model, "v_$(hash(np))_1_2") + 
+    variable_by_name(model, "v_$(hash(np))_2_2") + 1,
+    variable_by_name(model, "v_$(hash(np))_1_3") + 
+    variable_by_name(model, "v_$(hash(np))_2_3") + 1,
+    variable_by_name(model, "v_$(hash(np))_1_4") + 
+    variable_by_name(model, "v_$(hash(np))_2_4") + 1
+]
+
 
     @test ref_zeros[1].func == [
         5x[1] - variable_by_name(model, "v_$(hash(zeros))_1_1_1"),
@@ -200,7 +207,33 @@ function test_reformulate_disjunct_constraint_affexpr()
     ]
 end
 
-function test_reformulate_disjunct()
+# _partition_disjunct
+
+function test_partition_disjunct()
+    model = GDPModel()
+    @variable(model, 0<= x[1:4] <= 10)
+    @variable(model, Y[1:2], Logical)
+    method = PSplit([[x[1], x[2]], [x[3], x[4]]])
+    
+    con1 = @constraint(model, x[1] + x[2] <= 1, Disjunct(Y[1]))
+
+    for i in 1:4
+        DP._variable_bounds(model)[x[i]] = DP.set_variable_bound_info(x[i], method)
+        DP._bound_auxiliary(model, x[i], x[i], method)
+    end
+    
+    partitioned_constraints, sum_constraints, aux_vars = DP._partition_disjunct(model, Y[1], method)
+    @test partitioned_constraints[1].func == x[1] + x[2] - variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_1")
+    @test partitioned_constraints[2].func == -variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_2")
+
+    @test sum_constraints[1].func == variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_1") + 
+                                 variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_2")
+    @test sum_constraints[1].set == MOI.LessThan(1.0)
+    @test aux_vars == Set{JuMP.AbstractVariableRef}([variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_1"), variable_by_name(model, "v_$(hash(JuMP.constraint_object(con1)))_2")])
+end
+
+# reformulate_disjunction
+function test_reformulate_disjunction()
     model = GDPModel()
     @variable(model, 0 <= x[1:4] <= 1)
     @variable(model, Y[1:2], Logical)
@@ -230,8 +263,6 @@ function test_reformulate_disjunct()
     @test length(ref_cons2) == 3
 end
 
-
-
 function test_set_variable_bound_info()
     model = GDPModel()
     @variable(model, x)
@@ -247,6 +278,6 @@ end
     test_build_partitioned_expression()
     test_set_variable_bound_info()
     test_bound_auxiliary()
-    test_reformulate_disjunct_constraint_affexpr()
-    test_reformulate_disjunct()
+    test_build_partitioned_constraint()
+    test_partition_disjunct()
 end

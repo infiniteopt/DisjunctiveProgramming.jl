@@ -2,6 +2,7 @@
 #                              VARIABLE DISAGGREGATION
 ################################################################################
 requires_disaggregation(vref::JuMP.GenericVariableRef) = true
+
 function requires_disaggregation(::V) where {V}
     error("`Hull` method does not support expressions with variable " *
           "references of type `$V`.")
@@ -22,14 +23,14 @@ function _disaggregate_variables(
     end
 end
 function _disaggregate_variable(
-    model::JuMP.AbstractModel, 
+    model::M, 
     lvref::LogicalVariableRef, 
     vref::JuMP.AbstractVariableRef, 
     method::_Hull
-    )
+    ) where {M <: JuMP.AbstractModel}
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
-    T = JuMP.value_type(typeof(model))
+    T = JuMP.value_type(M)
     info = JuMP.VariableInfo(
         true,      # has_lb = true
         lb,        # lower_bound = lb
@@ -64,14 +65,23 @@ end
 #                              VARIABLE AGGREGATION
 ################################################################################
 function _aggregate_variable(
-    model::JuMP.AbstractModel, 
+    model::M, 
     ref_cons::Vector{JuMP.AbstractConstraint}, 
-    vref::JuMP.AbstractVariableRef, 
+    vref::V, 
     method::_Hull
-    )
+    ) where {M <: JuMP.AbstractModel, V <: JuMP.AbstractVariableRef}
     JuMP.is_binary(vref) && return #skip binary variables
-    con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
-    push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
+    # con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
+    # push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
+
+    expr = Base.zero(JuMP.GenericAffExpr{JuMP.value_type(M), V})
+    JuMP.add_to_expression!(expr, -1.0, vref)
+    #TODO: One(T)
+    for dv in method.disjunction_variables[vref]
+        JuMP.add_to_expression!(expr, 1.0, dv)
+    end
+    
+    push!(ref_cons, JuMP.build_constraint(error, expr, _MOI.EqualTo(0)))
     return 
 end
 

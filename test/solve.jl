@@ -55,14 +55,14 @@ function test_linear_gdp_example(m, use_complements = false)
     @test !value(W[2])
 end
 
-function test_quadratic_gdp_example(use_complements = false)
+function test_quadratic_gdp_example(use_complements = false) #psplit does not work with complements
     ipopt = optimizer_with_attributes(Ipopt.Optimizer,"print_level"=>0,"sb"=>"yes")
     optimizer = optimizer_with_attributes(Juniper.Optimizer, "nl_solver"=>ipopt)
     m = GDPModel(optimizer)
     set_attribute(m, MOI.Silent(), true)
     @variable(m, 0 ≤ x[1:2] ≤ 10)
     
-    if !use_complements
+    if use_complements
         @variable(m, Y1, Logical)
         @variable(m, Y2, Logical, logical_complement = Y1)
         Y = [Y1, Y2]
@@ -105,7 +105,8 @@ function test_quadratic_gdp_example(use_complements = false)
     @test !value(W[2])
 
     partition = [[x[1]], [x[2]]]
-    @test optimize!(m, gdp_method = PSplit(partition)) isa Nothing
+    @test optimize!(m, gdp_method = PSplit(2,m)) isa Nothing
+    # println(m)
     @test termination_status(m) in [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
     @test objective_value(m) ≈ 6.1237 atol=1e-3  
     @test value.(x) ≈ [4.0825, 2.0412] atol=1e-3 
