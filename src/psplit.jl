@@ -63,8 +63,10 @@ function _bound_auxiliary(
     method::PSplit
 ) where {M <: JuMP.AbstractModel}
     T = JuMP.value_type(M)
-    lower_bound = zero(T)
-    upper_bound = zero(T)
+
+    lower_bound = has_lower_bound(v) ? lower_bound(v) : zero(T)
+    upper_bound = has_upper_bound(v) ? upper_bound(v) : zero(T)
+
     for (var, coeff) in func.terms
         if var != v
             JuMP.is_binary(var) && continue
@@ -102,23 +104,11 @@ function _bound_auxiliary(
     method::PSplit
 ) where {M <: JuMP.AbstractModel}
     T = JuMP.value_type(M)
-    lower_bound = zero(T)
-    upper_bound = zero(T)
     
     # Handle linear terms
-    for (var, coeff) in func.aff.terms
-        if var != v
-            JuMP.is_binary(var) && continue
-            var_lb, var_ub = variable_bound_info(var)
-            if coeff > 0.0
-                lower_bound += coeff * var_lb
-                upper_bound += coeff * var_ub
-            else
-                lower_bound += coeff * var_ub
-                upper_bound += coeff * var_lb
-            end
-        end
-    end
+    _bound_auxiliary(model, v, func.aff, method)
+    lower_bound = JuMP.lower_bound(v)
+    upper_bound = JuMP.upper_bound(v)
     
     # Handle quadratic terms
     for (vars, coeff) in func.terms
@@ -159,7 +149,7 @@ function _bound_auxiliary(
 ) where {M <: JuMP.AbstractModel}
     T = JuMP.value_type(M)
     lower_bound = zero(T)
-    upper_bound = zero(T)   
+    upper_bound = zero(T)
     if func != v
         lower_bound = variable_bound_info(func)[1]
         upper_bound = variable_bound_info(func)[2]
