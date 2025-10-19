@@ -76,7 +76,6 @@ function _aggregate_variable(
 
     expr = Base.zero(JuMP.GenericAffExpr{JuMP.value_type(M), V})
     JuMP.add_to_expression!(expr, -1.0, vref)
-    #TODO: One(T)
     for dv in method.disjunction_variables[vref]
         JuMP.add_to_expression!(expr, 1.0, dv)
     end

@@ -374,7 +374,8 @@ A type for using the multiple big-M reformulation approach for disjunctive const
 
 **Fields**
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
-- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+- `default_M::T`: Default big-M value to use if no big-M is 
+specified for a logical variable (1e9).
 """
 mutable struct MBM{O, T} <: AbstractReformulationMethod
     optimizer::O
@@ -438,51 +439,58 @@ A type for using the P-split reformulation approach for disjunctive constraints.
 This method partitions variables into groups and handles each group separately.
 
 # Constructors
-- `PSplit(partition::Vector{Vector{V}})`: Create a PSplit with the given partition of variables
-- `PSplit(n_parts::Int, model::JuMP.AbstractModel)`: Automatically partition model variables into `n_parts` groups
+- `PSplit(partition::Vector{Vector{V}})`: Create a PSplit with the given 
+partition of variables
+- `PSplit(n_parts::Int, model::JuMP.AbstractModel)`: Automatically partition 
+model variables into `n_parts` groups
 
 # Fields
-- `partition::Vector{Vector{V}}`: The partition of variables, where each inner vector represents a group of variables that will be handled together
+- `partition::Vector{Vector{V}}`: The partition of variables, where each inner 
+vector represents a group of variables that will be handled together
 """
 struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
     partition::Vector{Vector{V}}
 
-    function PSplit(partition::Vector{Vector{V}}) where {V <: JuMP.AbstractVariableRef}
+    function PSplit(partition::Vector{Vector{V}}) where 
+        {V <: JuMP.AbstractVariableRef}
         new{V}(partition)
     end
 
     function PSplit(n_parts::Int, model::JuMP.AbstractModel)
-    n_parts > 0 || error("Number of partitions must be positive, got $n_parts")
-    variables = collect(JuMP.all_variables(model))
-    n_vars = length(variables)
-    
-    n_parts = min(n_parts, n_vars)
-    n_parts > 0 || error("No variables found in the model")
-    
-    base_size = n_vars ÷ n_parts
-    remaining = n_vars % n_parts
-    
-    partition = Vector{Vector{eltype(variables)}}()
-    start_idx = 1
-    
-    for i in 1:n_parts
-        part_size = i <= remaining ? base_size + 1 : base_size
-        end_idx = start_idx + part_size - 1
-        push!(partition, variables[start_idx:end_idx])
-        start_idx = end_idx + 1
-    end
-    
-    return PSplit(partition)
+        n_parts > 0 || error("Number of partitions must be 
+        positive, got $n_parts")
+        variables = collect(JuMP.all_variables(model))
+        n_vars = length(variables)
+        
+        n_parts = min(n_parts, n_vars)
+        n_parts > 0 || error("No variables found in the model")
+        
+        base_size = n_vars ÷ n_parts
+        remaining = n_vars % n_parts
+        
+        partition = Vector{Vector{eltype(variables)}}()
+        start_idx = 1
+        
+        for i in 1:n_parts
+            part_size = i <= remaining ? base_size + 1 : base_size
+            end_idx = start_idx + part_size - 1
+            push!(partition, variables[start_idx:end_idx])
+            start_idx = end_idx + 1
+        end
+        
+        return PSplit(partition)
     end
 end
 
 # temp struct to store variable disaggregations (reset for each disjunction)
-mutable struct _PSplit{V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
+mutable struct _PSplit{V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel, T} <: AbstractReformulationMethod
     partition::Vector{Vector{V}}
     sum_constraints::Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}
-    hull::_Hull
-    function _PSplit(method::PSplit{V}, model::M) where {V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel}
-        new{V, M}(
+    hull::_Hull{V, T}
+    function _PSplit(method::PSplit{V}, model::M) where 
+        {V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel}
+        T = JuMP.value_type(M)
+        new{V, M, T}(
             method.partition, 
             Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}(), 
             _Hull(Hull(), Set{V}())
