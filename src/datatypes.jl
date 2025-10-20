@@ -374,7 +374,7 @@ A type for using the multiple big-M reformulation approach for disjunctive const
 
 **Fields**
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
-- `default_M::T`: Default big-M value to use if no big-M isspecified for a logical variable (1e9).
+- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
 """
 mutable struct MBM{O, T} <: AbstractReformulationMethod
     optimizer::O
