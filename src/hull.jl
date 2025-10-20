@@ -65,22 +65,14 @@ end
 #                              VARIABLE AGGREGATION
 ################################################################################
 function _aggregate_variable(
-    model::M, 
+    model::JuMP.AbstractModel, 
     ref_cons::Vector{JuMP.AbstractConstraint}, 
-    vref::V, 
+    vref::JuMP.AbstractVariableRef, 
     method::_Hull
-    ) where {M <: JuMP.AbstractModel, V <: JuMP.AbstractVariableRef}
+    )
     JuMP.is_binary(vref) && return #skip binary variables
-    # con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
-    # push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
-
-    expr = Base.zero(JuMP.GenericAffExpr{JuMP.value_type(M), V})
-    JuMP.add_to_expression!(expr, -1.0, vref)
-    for dv in method.disjunction_variables[vref]
-        JuMP.add_to_expression!(expr, 1.0, dv)
-    end
-    
-    push!(ref_cons, JuMP.build_constraint(error, expr, _MOI.EqualTo(0)))
+    con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
+    push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
     return 
 end
 
