@@ -22,14 +22,14 @@ function _disaggregate_variables(
     end
 end
 function _disaggregate_variable(
-    model::JuMP.AbstractModel, 
+    model::M, 
     lvref::LogicalVariableRef, 
     vref::JuMP.AbstractVariableRef, 
     method::_Hull
-    )
+    ) where {M <: JuMP.AbstractModel}
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
-    T = JuMP.value_type(typeof(model))
+    T = JuMP.value_type(M)
     info = JuMP.VariableInfo(
         true,      # has_lb = true
         lb,        # lower_bound = lb
