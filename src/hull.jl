@@ -2,7 +2,6 @@
 #                              VARIABLE DISAGGREGATION
 ################################################################################
 requires_disaggregation(vref::JuMP.GenericVariableRef) = true
-
 function requires_disaggregation(::V) where {V}
     error("`Hull` method does not support expressions with variable " *
           "references of type `$V`.")
