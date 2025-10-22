@@ -45,6 +45,7 @@ function _optimize_hook(
     kwargs...
     ) # can add more kwargs if wanted
     if !_ready_to_optimize(model) || _solution_method(model) != gdp_method
+        println("Reformulating model", gdp_method)
         reformulate_model(model, gdp_method)
     end
     return JuMP.optimize!(model; ignore_optimize_hook = true, kwargs...)
