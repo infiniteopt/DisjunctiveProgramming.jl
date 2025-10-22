@@ -1,46 +1,10 @@
 ################################################################################
 #                              VARIABLE DISAGGREGATION
 ################################################################################
-"""
-    requires_disaggregation(vref::JuMP.AbstractVariableRef)::Bool
-
-Return a `Bool` whether `vref` requires disaggregation for the [`Hull`](@ref) 
-reformulation. This is intended as an extension point for interfaces with 
-DisjunctiveProgramming that use variable reference types that are not 
-`JuMP.GenericVariableRef`s. Errors if `vref` is not a `JuMP.GenericVariableRef`.
-See also [`make_disaggregated_variable`](@ref).
-"""
 requires_disaggregation(vref::JuMP.GenericVariableRef) = true
 function requires_disaggregation(::V) where {V}
     error("`Hull` method does not support expressions with variable " *
           "references of type `$V`.")
-end
-
-"""
-    make_disaggregated_variable(
-        model::JuMP.AbstractModel, 
-        vref::JuMP.AbstractVariableRef, 
-        name::String, 
-        lower_bound::Number, 
-        upper_bound::Number
-        )::JuMP.AbstractVariableRef
-
-Creates and adds a variable to `model` with name `name` and bounds `lower_bound` 
-and `upper_bound` based on the original variable `vref`. This is used to 
-create dissagregated variables needed for the [`Hull`](@ref) reformulation.
-This is implemented for `model::JuMP.GenericModel` and 
-`vref::JuMP.GenericVariableRef`, but it serves as an extension point for 
-interfaces with other model/variable reference types. This also requires 
-the implementation of [`requires_disaggregation`](@ref).
-"""
-function make_disaggregated_variable(
-    model::JuMP.GenericModel, 
-    vref::JuMP.GenericVariableRef, 
-    name, 
-    lb, 
-    ub
-    )
-    return JuMP.@variable(model, base_name = name, lower_bound = lb, upper_bound = ub)
 end
 
 function _disaggregate_variables(
@@ -58,14 +22,28 @@ function _disaggregate_variables(
     end
 end
 function _disaggregate_variable(
-    model::JuMP.AbstractModel, 
+    model::M, 
     lvref::LogicalVariableRef, 
     vref::JuMP.AbstractVariableRef, 
     method::_Hull
-    )
+    ) where {M <: JuMP.AbstractModel}
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
-    dvref = make_disaggregated_variable(model, vref, "$(vref)_$(lvref)", lb, ub)
+    T = JuMP.value_type(M)
+    info = JuMP.VariableInfo(
+        true,      # has_lb = true
+        lb,        # lower_bound = lb
+        true,      # has_ub = true  
+        ub,        # upper_bound = ub
+        false,     # has_fix = false
+        zero(T),   # fixed_value = 0
+        false,     # has_start = false
+        zero(T),   # start = 0
+        false,     # binary = false
+        false      # integer = false
+    )
+    properties = VariableProperties(info, "$(vref)_$(lvref)", nothing, nothing)
+    dvref = create_variable(model, properties)
     push!(_reformulation_variables(model), dvref)
     #get binary indicator variable
     bvref = binary_variable(lvref)

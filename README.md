@@ -175,6 +175,15 @@ The following reformulation methods are currently supported:
 4. [MBM](https://doi.org/10.1016/j.compchemeng.2015.02.013): The multiple big-m method creates multiple M values for each disjunct constraint. The 'MBM' struct is created with the following required argument:
 
     - `optimizer`: Optimizer to use when solving subproblems to determine M values. This is a required value.
+    - `default_M`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+
+5. [P-Split](https://arxiv.org/abs/2202.05198): This method reformulates each disjunct constraint into P constraints, each with a partitioned group defined by the user. This method requires that terms in the constraint be convex additively seperable with respect to each variable. The `PSplit` struct is created with the following required arguments:
+
+    - `partition`: Partition of the variables to be split. All variables must be in exactly one partition. (e.g., The variables `x[1:4]` can be partitioned into two groups ` partition = [[x[1], x[2]], [x[3], x[4]]]`)
+    - `PSplit(n_parts, model)`: Automatically partition all variables in the model into `n_parts` groups
+
+    All variables must be included in exactly one partition. For manual partitioning, ensure each variable appears in exactly one group. For automatic partitioning, variables are divided as evenly as possible among the specified number of partitions.
+
 
 ## Release Notes
 
@@ -191,7 +200,7 @@ using HiGHS
 m = GDPModel(HiGHS.Optimizer)
 @variable(m, 0 ≤ x[1:2] ≤ 20)
 @variable(m, Y[1:2], Logical)
-@constraint(m, [i = 1:2], [2,5][i] ≤ x[i] ≤ [6,9][i], Disjunct(Y[1]))
+@constraint(m, [i = 1:2], [2,5][i] ≤ x[i] ≤ [6,9][i], Disjunct(Y[1])) 
 @constraint(m, [i = 1:2], [8,10][i] ≤ x[i] ≤ [11,15][i], Disjunct(Y[2]))
 @disjunction(m, Y)
 @objective(m, Max, sum(x))

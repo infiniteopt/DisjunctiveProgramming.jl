@@ -368,41 +368,38 @@ struct BigM{T} <: AbstractReformulationMethod
 end
 
 """
-    MBM{O} <: AbstractReformulationMethod
+    MBM{O, T, L <: LogicalVariableRef} <: AbstractReformulationMethod
 
 A type for using the multiple big-M reformulation approach for disjunctive constraints.
 
 **Fields**
-- 'optimizer::O': Optimizer to use when solving mini-models (required).
+- `optimizer::O`: Optimizer to use when solving mini-models (required).
+- `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
 """
-struct MBM{O} <: AbstractReformulationMethod
+mutable struct MBM{O, T} <: AbstractReformulationMethod
     optimizer::O
+    default_M::T
     
-    # Constructor with optimizer (required)
-    function MBM(optimizer::O) where {O}
-        new{O}(optimizer)
+    # Constructor with optimizer (required) and optional default_M
+    function MBM(optimizer::O, default_M::T = 1e9) where {O, T}
+        new{O, T}(optimizer, default_M)
     end
 end
 
-"""
-    cutting_planes{O} <: AbstractReformulationMethod
-
-A type for using the cutting planes approach for disjunctive constraints.
-
-**Fields**
-- 'optimizer::O': Optimizer to use when solving mini-models (required).
-- 'iter::Int': Number of iterations (default = `3`).
-"""
-struct cutting_planes{O} <: AbstractReformulationMethod
+mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
     optimizer::O
-    iter::Int
-    
-    # Constructor with optimizer (required)
-    function cutting_planes(optimizer::O, iter::Int = 3) where {O}
-        new{O}(optimizer, iter)
+    M::Dict{LogicalVariableRef{M}, T}                        
+    default_M::T                            
+    conlvref::Vector{LogicalVariableRef{M}}                  
+
+    function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
+        new{O, T, M}(method.optimizer,
+            Dict{LogicalVariableRef{M}, T}(), 
+            method.default_M,
+            Vector{LogicalVariableRef{M}}()                               
+        )
     end
 end
-
 
 """
     Hull{T} <: AbstractReformulationMethod
@@ -430,6 +427,72 @@ mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationM
             method.value,
             Dict{V, Vector{V}}(vref => V[] for vref in vrefs), 
             Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}()
+        )
+    end
+end
+
+"""
+    PSplit <: AbstractReformulationMethod
+
+A type for using the P-split reformulation approach for disjunctive constraints.
+This method partitions variables into groups and handles each group separately.
+
+# Constructors
+- `PSplit(partition::Vector{Vector{V}})`: Create a PSplit with the given 
+partition of variables
+- `PSplit(n_parts::Int, model::JuMP.AbstractModel)`: Automatically partition 
+model variables into `n_parts` groups
+
+# Fields
+- `partition::Vector{Vector{V}}`: The partition of variables, where each inner 
+vector represents a group of variables that will be handled together
+"""
+struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
+    partition::Vector{Vector{V}}
+
+    function PSplit(partition::Vector{Vector{V}}) where 
+        {V <: JuMP.AbstractVariableRef}
+        new{V}(partition)
+    end
+
+    function PSplit(n_parts::Int, model::JuMP.AbstractModel)
+        n_parts > 0 || error("Number of partitions must be 
+        positive, got $n_parts")
+        variables = collect(JuMP.all_variables(model))
+        n_vars = length(variables)
+        
+        n_parts = min(n_parts, n_vars)
+        n_parts > 0 || error("No variables found in the model")
+        
+        base_size = n_vars ÷ n_parts
+        remaining = n_vars % n_parts
+        
+        partition = Vector{Vector{eltype(variables)}}()
+        start_idx = 1
+        
+        for i in 1:n_parts
+            part_size = i <= remaining ? base_size + 1 : base_size
+            end_idx = start_idx + part_size - 1
+            push!(partition, variables[start_idx:end_idx])
+            start_idx = end_idx + 1
+        end
+        
+        return PSplit(partition)
+    end
+end
+
+# temp struct to store variable disaggregations (reset for each disjunction)
+mutable struct _PSplit{V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel, T} <: AbstractReformulationMethod
+    partition::Vector{Vector{V}}
+    sum_constraints::Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}
+    hull::_Hull{V, T}
+    function _PSplit(method::PSplit{V}, model::M) where 
+        {V <: JuMP.AbstractVariableRef, M <: JuMP.AbstractModel}
+        T = JuMP.value_type(M)
+        new{V, M, T}(
+            method.partition, 
+            Dict{LogicalVariableRef{M}, Vector{<:AbstractConstraint}}(), 
+            _Hull(Hull(), Set{V}())
         )
     end
 end
@@ -493,4 +556,53 @@ mutable struct GDPData{M <: JuMP.AbstractModel, V <: JuMP.AbstractVariableRef, C
             false,
         )
     end
+end
+
+################################################################################
+#                              VARIABLE INFO
+################################################################################
+"""
+    VariableProperties{L, U, F, S, SET, T}
+
+A type for storing variable properties and attributes that can be applied to JuMP variables.
+This is used to capture and transfer variable information between models during reformulation.
+
+**Fields**
+- `info::JuMP.VariableInfo{L, U, F, S}`: JuMP's VariableInfo struct containing bounds, fixed values, start values, and binary/integer constraints.
+- `name::String`: The variable name.
+- `set::SET`: The constraint set the variable belongs to (if any), obtained via `JuMP.moi_set`.
+- `variable_type::T`: The variable type information, critical for extensions.
+
+**Type Parameters**
+- `L, U, F, S`: Type parameters from JuMP.VariableInfo for lower bound, upper bound, fixed value, and start value types.
+- `SET`: Type of the constraint set the variable belongs to.
+- `T`: Type of the variable type information.
+
+**Constructor**
+`VariableProperties(vref::JuMP.GenericVariableRef{T})` creates a VariableProperties instance
+from a JuMP variable reference, automatically extracting all relevant properties.
+"""
+mutable struct VariableProperties{L, U, F, S, SET, T}
+    info::JuMP.VariableInfo{L, U, F, S}
+    name::String
+    set::SET
+    variable_type::T
+end 
+
+function VariableProperties(vref::JuMP.GenericVariableRef{T}) where T
+    info = JuMP.VariableInfo(
+        JuMP.has_lower_bound(vref),
+        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
+        JuMP.has_upper_bound(vref),
+        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
+        JuMP.is_fixed(vref),
+        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
+        !isnothing(JuMP.start_value(vref)),
+        JuMP.start_value(vref),
+        JuMP.is_binary(vref),
+        JuMP.is_integer(vref)
+    )
+    name = JuMP.name(vref)
+    set = JuMP.is_variable_in_set(vref) ? JuMP.moi_set(JuMP.constraint_object(JuMP.VariableInSetRef(vref))) : nothing
+    return VariableProperties(info, name, set, nothing)
 end

@@ -22,9 +22,10 @@ include("reformulate.jl")
 include("bigm.jl")
 include("hull.jl")
 include("mbm.jl")
-include("cuttingplanes.jl")
 include("indicator.jl")
 include("print.jl")
+include("utilities.jl")
+include("psplit.jl")
 
 # Define additional stuff that should not be exported
 const _EXCLUDE_SYMBOLS = [Symbol(@__MODULE__), :eval, :include]
