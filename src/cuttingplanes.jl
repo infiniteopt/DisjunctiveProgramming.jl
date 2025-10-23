@@ -1,30 +1,21 @@
+#TODO: Right now there are Invalid Variable Refs. Its harmless but a point to polish at the end
+#EXAMPLE OUTPUT: Dict{AbstractVariableRef, AbstractVariableRef}(InvalidVariableRef => x[1]_Y[2], InvalidVariableRef => x[2]_Y[1], x[2] => x[2], x[1] => x[1], InvalidVariableRef => x[2]_Y[2], Y[1] => Y[1], InvalidVariableRef => x[1]_Y[1], Y[2] => Y[2])
 function reformulate_model(
     model::JuMP.AbstractModel, 
     method::cutting_planes
     ) 
-    println("0")
     obj = objective_function(model)
     sense = objective_sense(model)
     #Initializing SEP
     SEP = JuMP.Model(method.optimizer)
-    println("1")
     _reformulate_disjunctions(model, Hull())
-    println("2")
     _reformulate_logical_constraints(model)
-    println("3")
     main_to_SEP_map = _copy_variables_and_constraints(model, SEP, method)
-    SEP_to_main_map = Dict(v => k for (k, v) in main_to_SEP_map)
-    #TODO: Right now there are Invalid Variable Refs. Its harmless but a point to polish at the end
-    #EXAMPLE OUTPUT: Dict{AbstractVariableRef, AbstractVariableRef}(InvalidVariableRef => x[1]_Y[2], InvalidVariableRef => x[2]_Y[1], x[2] => x[2], x[1] => x[1], InvalidVariableRef => x[2]_Y[2], Y[1] => Y[1], InvalidVariableRef => x[1]_Y[1], Y[2] => Y[2])
-    println
     #Initializing rBM
     rBM = JuMP.Model(method.optimizer)
-    reformulate_model(model, BigM(10e8))
+    _reformulate_disjunctions(model, BigM(10e8))
     main_to_rBM_map = _copy_variables_and_constraints(model, rBM, method)
     JuMP.@objective(rBM, sense, _replace_variables_in_constraint(obj, main_to_rBM_map))
-    rBM_to_main_map = Dict(v => k for (k, v) in main_to_rBM_map)
-    println("4")
-    println("5")
     # Create cross-mappings between rBM and SEP models
     rBM_to_SEP_map = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     SEP_to_rBM_map = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
@@ -39,11 +30,9 @@ function reformulate_model(
         SEP_sol = _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
         _cutting_planes(model, rBM, main_to_rBM_map, main_to_SEP_map, rBM_sol, SEP_sol)
     end
-    # reformulate_model(model, method.final_reformulation)
+    reformulate_model(model, method.final_reformulation)
     _set_solution_method(model, method)
     _set_ready_to_optimize(model, true)
-    println("piper",method.final_reformulation)
-
     return
 end
 
