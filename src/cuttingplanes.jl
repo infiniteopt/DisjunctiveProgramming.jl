@@ -16,7 +16,6 @@ function reformulate_model(
     _reformulate_disjunctions(model, BigM(10e8))
     main_to_rBM_map = _copy_variables_and_constraints(model, rBM, method)
     JuMP.@objective(rBM, sense, _replace_variables_in_constraint(obj, main_to_rBM_map))
-    # Create cross-mappings between rBM and SEP models
     rBM_to_SEP_map = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     SEP_to_rBM_map = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for (var, rBM_var) in main_to_rBM_map
