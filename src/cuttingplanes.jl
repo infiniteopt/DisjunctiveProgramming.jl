@@ -42,10 +42,32 @@ function _copy_variables_and_constraints(
 )
     var_map = Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef}()
     for var in JuMP.all_variables(model)
-        var_map[var] = variable_copy(target_model, var)
+        props = VariableProperties(var)
+        if props.info.binary
+            info = JuMP.VariableInfo(
+                true, 0.0,    # has_lb, lower bound
+                true, 1.0,    # has_ub, upper bound
+                false, 0.0,   # has_fix, fix value
+                props.info.has_start, props.info.start,  # preserve start
+                false,        # is_binary = false
+                false         # is_integer = false
+            )
+            props = VariableProperties(
+                info,
+                props.name,
+                nothing,  # Clear any binary set
+                props.variable_type
+            )
+            new_var = create_variable(target_model, props)
+            var_map[var] = new_var
+        else
+            new_var = variable_copy(target_model, var)
+            var_map[var] = new_var
+        end
     end
     constraints = JuMP.all_constraints(model; include_variable_in_set_constraints = false)
-    for con in [JuMP.constraint_object(con) for con in constraints]        expr = _replace_variables_in_constraint(con.func, var_map)
+    for con in [JuMP.constraint_object(con) for con in constraints]        
+        expr = _replace_variables_in_constraint(con.func, var_map)
         JuMP.@constraint(target_model, expr * 1.0 in con.set)
     end
     return var_map
@@ -54,13 +76,14 @@ end
 function _solve_rBM(
     rBM::JuMP.AbstractModel,
 )
+    JuMP.set_silent(rBM)
     optimize!(rBM)
     rBM_vars = JuMP.all_variables(rBM)
+    println(objective_value(rBM))
     solution_dict = Dict{JuMP.AbstractVariableRef, Float64}(var => 0.0 for var in rBM_vars)
     for rBM_var in rBM_vars
         solution_dict[rBM_var] = JuMP.value(rBM_var)
     end
-    println("rBM OBJECTIVE L = ", objective_value(rBM))
     return solution_dict
 end
 
@@ -71,9 +94,9 @@ function _solve_SEP(
     SEP_to_rBM_map::Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef},
     rBM_to_SEP_map::Dict{JuMP.AbstractVariableRef, JuMP.AbstractVariableRef} 
 )
+    JuMP.set_silent(SEP)
     SEP_vars = [rBM_to_SEP_map[rBM_var] for rBM_var in JuMP.all_variables(rBM)]
     obj_expr = sum((SEP_var - rBM_sol[SEP_to_rBM_map[SEP_var]])^2 for SEP_var in SEP_vars)
-    println("SEP OBJECTIVE L = ", obj_expr)
     JuMP.@objective(SEP, Min, obj_expr)
     optimize!(SEP)
 
