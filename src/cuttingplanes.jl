@@ -2,6 +2,7 @@ function reformulate_model(
     model::JuMP.AbstractModel, 
     method::cutting_planes
     ) 
+    _clear_reformulations(model)
     var_type = JuMP.variable_ref_type(model)
     obj = objective_function(model)
     sense = objective_sense(model)
