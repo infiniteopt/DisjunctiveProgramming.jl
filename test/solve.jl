@@ -122,7 +122,6 @@ function test_quadratic_gdp_example(use_complements = false) #psplit does not wo
     @test value(Y[2])
     @test !value(W[1]) 
     @test !value(W[2])
-
 end
 
 function test_generic_model(m)

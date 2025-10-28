@@ -19,7 +19,6 @@ function reformulate_model(model::JuMP.AbstractModel, method::AbstractSolutionMe
     return
 end
 
-
 function _clear_reformulations(model::JuMP.AbstractModel)
     delete.(model, _reformulation_constraints(model))
     delete.(model, _reformulation_variables(model))
