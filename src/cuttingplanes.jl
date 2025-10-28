@@ -34,8 +34,6 @@ function reformulate_model(
     sep_obj = 1
     while i <= method.max_iter && sep_obj > method.tolerance
         rBM_sol = _solve_rBM(rBM)
-        println(rBM)
-
         SEP_sol = _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
         sep_obj = objective_value(SEP)
         _cutting_planes(model, rBM, main_to_rBM_map, 

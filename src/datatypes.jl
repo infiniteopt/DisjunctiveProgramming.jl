@@ -445,9 +445,10 @@ struct cutting_planes{O} <: AbstractReformulationMethod
     max_iter::Int
     tolerance::Float64
     final_reformulation::AbstractReformulationMethod
+    M_value::Float64
     # Positional constructor
-    function cutting_planes(optimizer::O, max_iter::Int = 3, tolerance::Float64 = 1e-6, final_reformulation = BigM()) where {O}
-        new{O}(optimizer, max_iter, tolerance, final_reformulation)
+    function cutting_planes(optimizer::O, max_iter::Int = 3, tolerance::Float64 = 1e-6, final_reformulation = BigM(), M_value::Float64 = 1e9) where {O}
+        new{O}(optimizer, max_iter, tolerance, final_reformulation, M_value)
     end
 end
 

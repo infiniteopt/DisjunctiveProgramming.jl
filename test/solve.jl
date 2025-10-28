@@ -44,7 +44,6 @@ function test_linear_gdp_example(m, use_complements = false)
         @test value(variable_by_name(m, "x[2]_Y[1]")) ≈ 0
         @test value(variable_by_name(m, "x[2]_Y[2]")) ≈ 2
     end
-
     @test optimize!(m, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
     @test termination_status(m) == MOI.OPTIMAL
     @test objective_value(m) ≈ 11
@@ -146,12 +145,12 @@ function test_generic_model(m)
 end
 
 @testset "Solve Linear GDP" begin
-    # test_linear_gdp_example(GDPModel(HiGHS.Optimizer))
+    test_linear_gdp_example(GDPModel(HiGHS.Optimizer))
     test_linear_gdp_example(GDPModel(HiGHS.Optimizer), true)
-    # mockoptimizer = () -> MOI.Utilities.MockOptimizer(
-    #     MOI.Utilities.UniversalFallback(MOIU.Model{Float32}()),
-    #     eval_objective_value = false
-    #     )
-    # test_quadratic_gdp_example()
-    # test_generic_model(GDPModel{Float32}(mockoptimizer))
+    mockoptimizer = () -> MOI.Utilities.MockOptimizer(
+        MOI.Utilities.UniversalFallback(MOIU.Model{Float32}()),
+        eval_objective_value = false
+        )
+    test_quadratic_gdp_example()
+    test_generic_model(GDPModel{Float32}(mockoptimizer))
 end
