@@ -151,32 +151,34 @@ end
 #                              ERROR MESSAGES
 ################################################################################
 
-function reformulate_model(model, method::cutting_planes)
-    error("reformulate_model not implemented for model type `$(typeof(model))`.")
+function reformulate_model(::M, ::cutting_planes) where {M}
+    error("reformulate_model not implemented for model type `$(M)`.")
 end
 
-function _copy_variables_and_constraints(model, target_model, method)
+function _copy_variables_and_constraints(::M, ::N, ::cutting_planes) where {M, N}
     error("_copy_variables_and_constraints not implemented for model types
-          `$(typeof(model))`, `$(typeof(target_model))`. 
+          `$(M)`, `$(N)`. 
           Both model types much match."
           )
 end
 
-function _solve_rBM(model)
-    error("_solve_rBM not implemented for model type `$(typeof(model))`.")
+function _solve_rBM(::M) where {M}
+    error("_solve_rBM not implemented for model type `$(M)`.")
 end
 
-function _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
+function _solve_SEP(::M, ::N, ::H, ::S, ::R) where {M, N, H, S, R}
     error("_solve_SEP not implemented for argument types:\n
-          SEP: `$(typeof(SEP))`, rBM: `$(typeof(rBM))`,\n
-          rBM_sol: `$(typeof(rBM_sol))`,\n
-          SEP_to_rBM_map: `$(typeof(SEP_to_rBM_map))`,\n
-          rBM_to_SEP_map: `$(typeof(rBM_to_SEP_map))`.")
+          SEP: `$(M)`, rBM: `$(N)`,\n
+          rBM_sol: `$(H)`,\n
+          SEP_to_rBM_map: `$(S)`,\n
+          rBM_to_SEP_map: `$(R)`.")
 end
 
-function _cutting_planes(model, rBM, main_to_rBM_map, main_to_SEP_map, rBM_sol, SEP_sol)
+function _cutting_planes(::M, ::N, ::H, ::S, ::R, ::T) where {M, N, H, S, R, T}
     error("_cutting_planes not implemented for argument types: \n
-          model: `$(typeof(model))`, rBM: `$(typeof(rBM))`,\n
-          main_to_rBM_map: `$(typeof(main_to_rBM_map))`, main_to_SEP_map: `$(typeof(main_to_SEP_map))`,\n
-          rBM_sol: `$(typeof(rBM_sol))`, SEP_sol: `$(typeof(SEP_sol))`.")
+          model: `$(M)`, rBM: `$(N)`,\n
+          main_to_rBM_map: `$(H)`, main_to_SEP_map: 
+          `$(S)`,\n
+          rBM_sol: `$(R)`,\n
+          SEP_sol: `$(T)`.")
 end

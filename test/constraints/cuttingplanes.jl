@@ -34,7 +34,7 @@ function test_copy_variables_and_constraints()
     @test con.func == new_con
     @test con.set == MOI.LessThan(1.0)
     
-    @test_throws ErrorException DP._copy_variables_and_constraints(model, model, BigM())
+    @test_throws ErrorException DP._copy_variables_and_constraints("model", model, cutting_planes(HiGHS.Optimizer))
 end
 
 function test_solve_rBM()
