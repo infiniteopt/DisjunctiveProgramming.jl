@@ -41,10 +41,27 @@ function test_set_optimizer()
     @test solver_name(model) == "HiGHS"
 end
 
+function test_copy_model()
+    model = DP.GDPModel(HiGHS.Optimizer)
+    @variable(model, 0 ≤ x[1:2] ≤ 20)
+    @variable(model, Y[1:2], DP.Logical)
+    @constraint(model, [i = 1:2], [2,5][i] ≤ x[i] ≤ [6,9][i], DP.Disjunct(Y[1]))
+    @constraint(model, [i = 1:2], [8,10][i] ≤ x[i] ≤ [11,15][i], DP.Disjunct(Y[2]))
+    DP.@disjunction(model, Y)
+    DP._variable_bounds(model)[x[1]] = set_variable_bound_info(x[1], BigM())
+    DP._variable_bounds(model)[x[2]] = set_variable_bound_info(x[2], BigM())
+    
+    new_model, ref_map = JuMP.copy_model(model)
+    @test haskey(new_model.ext, :GDP)
+    lv_map = DP.copy_gdp_data(model, new_model, ref_map)
+    @test length(lv_map) == 2 
+end
+
 @testset "GDP Model" begin
     test_GDPData()
     test_empty_model()
     test_non_gdp_model()
+    test_copy_model()
     test_creation_optimizer()
     test_set_optimizer()
 end
