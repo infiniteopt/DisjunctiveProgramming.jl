@@ -7,21 +7,26 @@ function reformulate_model(
     obj = objective_function(model)
     sense = objective_sense(model)
     #Seperation Model
-    _reformulate_disjunctions(model, Hull())
-    SEP = _copy_model(model)
+    SEP, sep_ref_map, _ = copy_model_and_gdp_data(model)
+    main_to_SEP_map = Dict(v => sep_ref_map[v] for v in all_variables(model))
+    reformulate_model(SEP, Hull())
+    rBM, rBM_ref_map, _ = copy_model_and_gdp_data(model)
+    reformulate_model(rBM, BigM(method.M_value))
+    main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in all_variables(model))
     JuMP.set_optimizer(SEP, method.optimizer)
-    _reformulate_logical_constraints(model)
-    main_to_SEP_map = _copy_variables_and_constraints(model, SEP, method)
-    #Relaxed BigM model
-    _clear_reformulations(model)
-    _reformulate_disjunctions(model, BigM(method.M_value))
-    _reformulate_logical_constraints(model)
-    rBM = _copy_model(model)
     JuMP.set_optimizer(rBM, method.optimizer)
-    main_to_rBM_map = _copy_variables_and_constraints(model, rBM, method)
     JuMP.@objective(rBM, sense, 
     _replace_variables_in_constraint(obj, main_to_rBM_map)
     )
+    for m in [SEP, rBM]
+        binary_vars = filter(is_binary, all_variables(m))
+        for var in binary_vars
+            unset_binary(var)
+            set_lower_bound(var, 0.0)
+            set_upper_bound(var, 1.0)
+        end
+    end
+
 
     rBM_to_SEP_map = Dict{var_type, var_type}()
     SEP_to_rBM_map = Dict{var_type, var_type}()
@@ -30,10 +35,12 @@ function reformulate_model(
         rBM_to_SEP_map[rBM_var] = SEP_var
         SEP_to_rBM_map[SEP_var] = rBM_var
     end
+    
+
 
     i = 1
     sep_obj = 1
-    while i <= method.max_iter && sep_obj > method.tolerance
+    while i <= method.max_iter && sep_obj > method.seperation_tolerance
         rBM_sol = _solve_rBM(rBM)
         SEP_sol = _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
         sep_obj = objective_value(SEP)
@@ -42,51 +49,8 @@ function reformulate_model(
         )
         i += 1
     end
-    reformulate_model(model, method.final_reformulation)
+    reformulate_model(model, method.final_reform_method)
     return
-end
-
-function _copy_variables_and_constraints(
-    model::M, 
-    target_model::M,       
-    method::cutting_planes
-) where {M <: JuMP.AbstractModel}
-    T = JuMP.value_type(M)
-    var_type = JuMP.variable_ref_type(model)
-
-    var_map = Dict{var_type, var_type}()
-    for var in JuMP.all_variables(model)
-        props = VariableProperties(var)
-        if props.info.binary
-            info = JuMP.VariableInfo(
-                true, zero(T),    
-                true, one(T),    
-                false, zero(T),   
-                props.info.has_start, props.info.start,  
-                false,        
-                false         
-            )
-            props = VariableProperties(
-                info,
-                props.name,
-                nothing,  # Clear any binary set
-                props.variable_type
-            )
-            new_var = create_variable(target_model, props)
-            var_map[var] = new_var
-        else
-            new_var = variable_copy(target_model, var)
-            var_map[var] = new_var
-        end
-    end
-    constraints = JuMP.all_constraints(model; 
-    include_variable_in_set_constraints = false
-    )
-    for con in [JuMP.constraint_object(con) for con in constraints]        
-        expr = _replace_variables_in_constraint(con.func, var_map)
-        JuMP.@constraint(target_model, expr * 1.0 in con.set)
-    end
-    return var_map
 end
 
 function _solve_rBM(
@@ -94,7 +58,7 @@ function _solve_rBM(
 ) where {M <: JuMP.AbstractModel}
     T = JuMP.value_type(M)
     JuMP.set_silent(rBM)
-    optimize!(rBM)
+    optimize!(rBM, ignore_optimize_hook = true)
     rBM_vars = JuMP.all_variables(rBM)
     sol = Dict{JuMP.AbstractVariableRef, T}(var => zero(T) for var in rBM_vars)
     for rBM_var in rBM_vars
@@ -117,7 +81,7 @@ function _solve_SEP(
         )
     JuMP.@objective(SEP, Min, obj_expr)
 
-    optimize!(SEP)
+    optimize!(SEP, ignore_optimize_hook = true)
 
     sol = Dict{JuMP.AbstractVariableRef, T}(var => zero(T) for var in SEP_vars)
     for SEP_var in SEP_vars
@@ -154,13 +118,6 @@ end
 
 function reformulate_model(::M, ::cutting_planes) where {M}
     error("reformulate_model not implemented for model type `$(M)`.")
-end
-
-function _copy_variables_and_constraints(::M, ::N, ::cutting_planes) where {M, N}
-    error("_copy_variables_and_constraints not implemented for model types
-          `$(M)`, `$(N)`. 
-          Both model types much match."
-          )
 end
 
 function _solve_rBM(::M) where {M}

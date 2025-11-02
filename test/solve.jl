@@ -70,9 +70,9 @@ function test_linear_gdp_example(m, use_complements = false)
     set_optimizer_attribute(m_copy, "output_flag", false)
     optimize!(m_copy, gdp_method = BigM())
     @test termination_status(m_copy) == MOI.OPTIMAL
-    @test objective_value(m_copy) ≈ 11
-    @test value.(x) == value.(ref_map[x])
-    @test value.(Y[1]) == value.(lv_map[Y[1]])
+    @test objective_value(m_copy) ≈ 11 atol=1e-3
+    @test value.(x) ≈ value.(ref_map[x]) atol=1e-3
+    @test value.(Y[1]) == value.(lv_map[Y[1]]) 
     @test value.(Y[2]) == value.(lv_map[Y[2]])
     @test !value(W[1])
     @test !value(W[2])

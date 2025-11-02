@@ -55,6 +55,10 @@ function test_copy_model()
     @test haskey(new_model.ext, :GDP)
     lv_map = DP.copy_gdp_data(model, new_model, ref_map)
     @test length(lv_map) == 2 
+
+    new_model1, ref_map1, lv_map1 = copy_model_and_gdp_data(model)
+    @test haskey(new_model1.ext, :GDP)
+    @test length(lv_map1) == 2
 end
 
 @testset "GDP Model" begin
