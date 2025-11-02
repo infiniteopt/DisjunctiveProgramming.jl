@@ -31,8 +31,10 @@ function copy_gdp_data(
     disj_con_map = Dict{DisjunctConstraintRef{M}, DisjunctConstraintRef{M}}()
     for (idx, var) in old_gdp.logical_variables
         old_var_ref = LogicalVariableRef(model, idx)
-        new_var = JuMP.add_variable(new_model, var.variable, var.name)
+        new_var_data = LogicalVariableData(var.variable, var.name)
+        new_var = LogicalVariableRef(new_model, idx)
         lv_map[old_var_ref] = new_var
+        new_gdp.logical_variables[idx] = new_var_data
     end
 
     for (idx, lc_data) in old_gdp.logical_constraints
@@ -116,4 +118,10 @@ function copy_gdp_data(
     new_gdp.ready_to_optimize = old_gdp.ready_to_optimize
 
     return lv_map
+end
+
+function copy_model_and_gdp_data(model::M) where {M <: JuMP.AbstractModel}
+    new_model, ref_map = JuMP.copy_model(model)
+    lv_map = copy_gdp_data(model, new_model, ref_map)
+    return new_model, ref_map, lv_map
 end
