@@ -154,9 +154,32 @@ function test_copy_model()
     @test length(DP._disjunctions(model)) == orig_num_disj
     @test !haskey(object_dictionary(model), :W)
     
+    # Store original reformulation methods
+    orig_methods = Dict(
+        :model => [DP._solution_method(model)],
+        :new_model1 => [DP._solution_method(new_model1)]
+    )
+    
+    # Solve new_model with Big-M reformulation
+    set_optimizer(new_model, HiGHS.Optimizer)
+    set_silent(new_model)
+    DP.optimize!(new_model, gdp_method = BigM())
+    @test termination_status(new_model) in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
+    
+    # Verify reformulation methods of other models are unchanged
+    @test DP._solution_method(model) == orig_methods[:model][]
+    @test DP._solution_method(new_model1) == orig_methods[:new_model1][]
+    
+    # Verify model and new_model1 were not modified by the solve
+    @test num_variables(model) == orig_num_vars
+    @test num_variables(new_model1) == orig1_num_vars
+    @test length(DP._logical_variables(model)) == orig_num_lvars
     @test length(DP._logical_variables(new_model1)) == orig1_num_lvars
+    @test length(DP._disjunct_constraints(model)) == orig_num_disj_cons
     @test length(DP._disjunct_constraints(new_model1)) == orig1_num_disj_cons
+    @test length(DP._disjunctions(model)) == orig_num_disj
     @test length(DP._disjunctions(new_model1)) == orig1_num_disj
+    
     @test !haskey(object_dictionary(new_model1), :W)
     
     @test length(DP._logical_variables(new_model)) == orig_num_lvars + 2
