@@ -41,6 +41,53 @@ function test_set_optimizer()
     @test solver_name(model) == "HiGHS"
 end
 
+function test_remapping_functions()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y)
+    @variable(model, z)
+    
+    var_map = Dict{VariableRef, VariableRef}(x => y, z => x)
+    
+    @test DP._remap_indicator_to_binary(x, var_map) == y
+    @test DP._remap_indicator_to_binary(z, var_map) == x
+    
+    aff_expr = 2.0 * x + 3.0 * z + 5.0
+    remapped_expr = DP._remap_indicator_to_binary(aff_expr, var_map)
+    @test remapped_expr isa JuMP.GenericAffExpr
+    @test remapped_expr.constant == 5.0
+    @test remapped_expr.terms[y] == 2.0  # x remapped to y
+    @test remapped_expr.terms[x] == 3.0  # z remapped to x
+    @test !haskey(remapped_expr.terms, z)  # z shouldn't exist anymore
+    
+    model2 = GDPModel()
+    @variable(model2, a[1:3])
+    @variable(model2, Y[1:3], DP.Logical)
+    
+    con1 = @constraint(model2, a[1] ≤ 5, DP.Disjunct(Y[1]))
+    con2 = @constraint(model2, a[2] ≥ 2, DP.Disjunct(Y[2]))
+    con3 = @constraint(model2, a[3] == 4, DP.Disjunct(Y[3]))
+    
+    disj1 = DP.@disjunction(model2, Y[1:2])
+    disj2 = DP.@disjunction(model2, Y[2:3])
+    
+    disj_con_map = Dict{DisjunctConstraintRef{Model}, DisjunctConstraintRef{Model}}(
+        con1 => con2,
+        con2 => con3
+    )
+    disj_map = Dict{DisjunctionRef{Model}, DisjunctionRef{Model}}()
+    
+    @test DP._remap_constraint_to_indicator(con1, disj_con_map, disj_map) == con2
+    @test DP._remap_constraint_to_indicator(con2, disj_con_map, disj_map) == con3
+    
+    empty_disj_con_map = Dict{DisjunctConstraintRef{Model}, DisjunctConstraintRef{Model}}()
+    disj_map2 = Dict{DisjunctionRef{Model}, DisjunctionRef{Model}}(
+        disj1 => disj2
+    )
+    
+    @test DP._remap_constraint_to_indicator(disj1, empty_disj_con_map, disj_map2) == disj2
+end
+
 function test_copy_model()
     model = DP.GDPModel(HiGHS.Optimizer)
     @variable(model, 0 ≤ x[1:2] ≤ 20)
@@ -55,10 +102,89 @@ function test_copy_model()
     @test haskey(new_model.ext, :GDP)
     lv_map = DP.copy_gdp_data(model, new_model, ref_map)
     @test length(lv_map) == 2 
-
-    new_model1, ref_map1, lv_map1 = copy_model_and_gdp_data(model)
+    new_model1, ref_map1, lv_map1 = DP.copy_gdp_model(model)
     @test haskey(new_model1.ext, :GDP)
     @test length(lv_map1) == 2
+
+    orig_num_vars = num_variables(model)
+    orig_num_constrs = num_constraints(model; 
+    count_variable_in_set_constraints = false
+    )
+    orig1_num_vars = num_variables(new_model1)
+    orig1_num_constrs = num_constraints(new_model1; 
+    count_variable_in_set_constraints = false
+    )
+    
+    @variable(new_model, z >= 0)
+    @constraint(new_model, z <= 100)
+    
+    @test num_variables(model) == orig_num_vars
+    num_con_m = num_constraints(model; 
+    count_variable_in_set_constraints = false)
+    num_con_m1 = num_constraints(new_model1; 
+    count_variable_in_set_constraints = false)
+    @test num_con_m == orig_num_constrs
+    @test num_con_m1 == orig1_num_constrs
+    @test !haskey(object_dictionary(model), :z)
+    
+    @test num_variables(new_model1) == orig1_num_vars
+    
+    @test !haskey(object_dictionary(new_model1), :z)
+
+    @test num_variables(new_model) == orig_num_vars + 1
+    num_con_m2 = num_constraints(new_model; 
+    count_variable_in_set_constraints = false)
+    @test num_con_m2 == orig_num_constrs + 1
+    
+
+    orig_num_lvars = length(DP._logical_variables(model))
+    orig_num_disj_cons = length(DP._disjunct_constraints(model))
+    orig_num_disj = length(DP._disjunctions(model))
+    orig1_num_lvars = length(DP._logical_variables(new_model1))
+    orig1_num_disj_cons = length(DP._disjunct_constraints(new_model1))
+    orig1_num_disj = length(DP._disjunctions(new_model1))
+    
+    @variable(new_model, W[1:2], DP.Logical)
+    @constraint(new_model, z >= 5, DP.Disjunct(W[1]))
+    @constraint(new_model, z <= 3, DP.Disjunct(W[2]))
+    DP.@disjunction(new_model, W)
+    
+    @test length(DP._logical_variables(model)) == orig_num_lvars
+    @test length(DP._disjunct_constraints(model)) == orig_num_disj_cons
+    @test length(DP._disjunctions(model)) == orig_num_disj
+    @test !haskey(object_dictionary(model), :W)
+    
+    # Store original reformulation methods
+    orig_methods = Dict(
+        :model => [DP._solution_method(model)],
+        :new_model1 => [DP._solution_method(new_model1)]
+    )
+    
+    # Solve new_model with Big-M reformulation
+    set_optimizer(new_model, HiGHS.Optimizer)
+    set_silent(new_model)
+    DP.optimize!(new_model, gdp_method = BigM())
+    @test termination_status(new_model) in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
+    
+    # Verify reformulation methods of other models are unchanged
+    @test DP._solution_method(model) == orig_methods[:model][]
+    @test DP._solution_method(new_model1) == orig_methods[:new_model1][]
+    
+    # Verify model and new_model1 were not modified by the solve
+    @test num_variables(model) == orig_num_vars
+    @test num_variables(new_model1) == orig1_num_vars
+    @test length(DP._logical_variables(model)) == orig_num_lvars
+    @test length(DP._logical_variables(new_model1)) == orig1_num_lvars
+    @test length(DP._disjunct_constraints(model)) == orig_num_disj_cons
+    @test length(DP._disjunct_constraints(new_model1)) == orig1_num_disj_cons
+    @test length(DP._disjunctions(model)) == orig_num_disj
+    @test length(DP._disjunctions(new_model1)) == orig1_num_disj
+    
+    @test !haskey(object_dictionary(new_model1), :W)
+    
+    @test length(DP._logical_variables(new_model)) == orig_num_lvars + 2
+    @test length(DP._disjunct_constraints(new_model)) == orig_num_disj_cons + 2
+    @test length(DP._disjunctions(new_model)) == orig_num_disj + 1
 end
 
 @testset "GDP Model" begin
@@ -68,4 +194,5 @@ end
     test_copy_model()
     test_creation_optimizer()
     test_set_optimizer()
+    test_remapping_functions()
 end

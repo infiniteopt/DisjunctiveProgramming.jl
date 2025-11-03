@@ -79,11 +79,7 @@ function copy_gdp_data(
     end
 
     for (lv_ref, bref) in old_gdp.indicator_to_binary
-        if bref isa JuMP.VariableRef
-            new_bref = var_map[bref]
-        elseif bref isa JuMP.GenericAffExpr
-            new_bref = _replace_variables_in_constraint(bref, var_map)
-        end
+        new_bref = _remap_indicator_to_binary(bref, var_map)
         new_gdp.indicator_to_binary[lv_map[lv_ref]] = new_bref
     end
 
@@ -91,23 +87,18 @@ function copy_gdp_data(
         new_lvar_ref = lv_map[lv_ref]
         new_con_refs = Vector{Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}}()
         for con_ref in con_refs
-            new_con_ref = nothing
-            if con_ref isa DisjunctConstraintRef
-                new_con_ref = disj_con_map[con_ref]
-            elseif con_ref isa DisjunctionRef
-                new_con_ref = disj_map[con_ref]
-            end
+            new_con_ref = _remap_indicator_to_constraint(con_ref, 
+            disj_con_map, disj_map
+            )
             push!(new_con_refs, new_con_ref)
         end
         new_gdp.indicator_to_constraints[new_lvar_ref] = new_con_refs
     end
 
     for (con_ref, lv_ref) in old_gdp.constraint_to_indicator
-        if con_ref isa DisjunctConstraintRef
-            new_gdp.constraint_to_indicator[disj_con_map[con_ref]] = lv_map[lv_ref]
-        elseif con_ref isa DisjunctionRef
-            new_gdp.constraint_to_indicator[disj_map[con_ref]] = lv_map[lv_ref]
-        end
+        new_gdp.constraint_to_indicator[
+            _remap_constraint_to_indicator(con_ref, disj_con_map, disj_map)
+            ] = lv_map[lv_ref]
     end
 
     for (v, bounds) in old_gdp.variable_bounds
@@ -120,8 +111,54 @@ function copy_gdp_data(
     return lv_map
 end
 
-function copy_model_and_gdp_data(model::M) where {M <: JuMP.AbstractModel}
+function copy_gdp_model(model::M) where {M <: JuMP.AbstractModel}
     new_model, ref_map = JuMP.copy_model(model)
     lv_map = copy_gdp_data(model, new_model, ref_map)
     return new_model, ref_map, lv_map
+end
+
+function _remap_indicator_to_constraint(
+    con_ref::DisjunctConstraintRef,
+    disj_con_map::Dict{DisjunctConstraintRef{M}, DisjunctConstraintRef{M}},
+    ::Dict{DisjunctionRef{M}, DisjunctionRef{M}}
+) where {M <: JuMP.AbstractModel}
+    return disj_con_map[con_ref]   
+end
+
+function _remap_indicator_to_constraint(
+    con_ref::DisjunctionRef,
+    ::Dict{DisjunctConstraintRef{M}, DisjunctConstraintRef{M}},
+    disj_map::Dict{DisjunctionRef{M}, DisjunctionRef{M}}
+) where {M <: JuMP.AbstractModel}
+    return disj_map[con_ref]   
+end
+
+function _remap_indicator_to_binary(
+    bref::JuMP.AbstractVariableRef,
+    var_map::Dict{V, V}
+) where {V <: JuMP.AbstractVariableRef}
+    return var_map[bref]
+end
+
+function _remap_indicator_to_binary(
+    bref::JuMP.GenericAffExpr,
+    var_map::Dict{V, V}
+) where {V <: JuMP.AbstractVariableRef}
+    return _replace_variables_in_constraint(bref, var_map)
+end
+
+function _remap_constraint_to_indicator(
+    con_ref::DisjunctConstraintRef,
+    disj_con_map::Dict{DisjunctConstraintRef{M}, DisjunctConstraintRef{M}},
+    ::Dict{DisjunctionRef{M}, DisjunctionRef{M}}
+) where {M <: JuMP.AbstractModel}
+    return disj_con_map[con_ref]   
+end
+
+function _remap_constraint_to_indicator(
+    con_ref::DisjunctionRef,
+    ::Dict{DisjunctConstraintRef{M}, DisjunctConstraintRef{M}},
+    disj_map::Dict{DisjunctionRef{M}, DisjunctionRef{M}}
+) where {M <: JuMP.AbstractModel}
+    return disj_map[con_ref]   
 end
