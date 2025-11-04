@@ -450,7 +450,8 @@ struct cutting_planes{O} <: AbstractReformulationMethod
     seperation_tolerance::Float64
     final_reform_method::AbstractReformulationMethod
     M_value::Float64
-    function cutting_planes(optimizer::O, 
+    function cutting_planes(
+        optimizer::O; 
         max_iter::Int = 3, 
         seperation_tolerance::Float64 = 1e-6, 
         final_reform_method = BigM(), 
