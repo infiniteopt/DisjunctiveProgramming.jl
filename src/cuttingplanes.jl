@@ -6,12 +6,11 @@ function reformulate_model(
     var_type = JuMP.variable_ref_type(model)
     obj = objective_function(model)
     sense = objective_sense(model)
-    #Seperation Model
-    SEP, sep_ref_map, _ = copy_model_and_gdp_data(model)
-    main_to_SEP_map = Dict(v => sep_ref_map[v] for v in all_variables(model))
-    reformulate_model(SEP, Hull())
-    rBM, rBM_ref_map, _ = copy_model_and_gdp_data(model)
+    SEP, sep_ref_map, _ = copy_gdp_model(model)
+    rBM, rBM_ref_map, _ = copy_gdp_model(model)
     reformulate_model(rBM, BigM(method.M_value))
+    reformulate_model(SEP, Hull())
+    main_to_SEP_map = Dict(v => sep_ref_map[v] for v in all_variables(model))
     main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in all_variables(model))
     JuMP.set_optimizer(SEP, method.optimizer)
     JuMP.set_optimizer(rBM, method.optimizer)
@@ -27,7 +26,6 @@ function reformulate_model(
         end
     end
 
-
     rBM_to_SEP_map = Dict{var_type, var_type}()
     SEP_to_rBM_map = Dict{var_type, var_type}()
     for (var, rBM_var) in main_to_rBM_map
@@ -36,8 +34,6 @@ function reformulate_model(
         SEP_to_rBM_map[SEP_var] = rBM_var
     end
     
-
-
     i = 1
     sep_obj = 1
     while i <= method.max_iter && sep_obj > method.seperation_tolerance
