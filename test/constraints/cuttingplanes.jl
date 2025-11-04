@@ -8,7 +8,9 @@ function test_cutting_planes_datatype()
     @test method.final_reform_method isa BigM
     @test method.M_value == 1e9
     
-    method = cutting_planes(HiGHS.Optimizer, 10; seperation_tolerance=1e-4, final_reform_method=Indicator(), M_value=1e6)
+    method = cutting_planes(HiGHS.Optimizer;max_iter=10, 
+    seperation_tolerance=1e-4, final_reform_method=Indicator(), M_value=1e6
+    )
     @test method.max_iter == 10
     @test method.seperation_tolerance == 1e-4
     @test method.final_reform_method isa Indicator
