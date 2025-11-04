@@ -188,8 +188,8 @@ The following reformulation methods are currently supported:
 
     - `optimizer`: Optimizer to use when solving the separation and relaxed Big-M subproblems. This is a required value.
     - `max_iter`: Maximum number of cutting plane iterations. Default: `3`.
-    - `tolerance`: Convergence tolerance for the separation problem objective. Default: `1e-6`.
-    - `final_reformulation`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
+    - `seperation_tolerance`: Convergence tolerance for the separation problem objective. Default: `1e-6`.
+    - `final_reform_method`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
     - `M_value`: Big-M value to use in the relaxed Big-M reformulation during iterations. Default: `1e9`.
 
 
