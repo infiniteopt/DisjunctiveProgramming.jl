@@ -21,9 +21,8 @@ function reformulate_model(
     JuMP.relax_integrality(rBM)
     JuMP.relax_integrality(SEP)
     JuMP.@objective(rBM, sense, 
-    _replace_variables_in_constraint(obj, main_to_rBM_map)
+        _replace_variables_in_constraint(obj, main_to_rBM_map)
     )
-
     #Mapping of variables between models.
     rBM_to_SEP_map = Dict{var_type, var_type}()
     SEP_to_rBM_map = Dict{var_type, var_type}()
@@ -41,7 +40,7 @@ function reformulate_model(
         SEP_sol = _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
         sep_obj = objective_value(SEP)
         _cutting_planes(model, rBM, main_to_rBM_map, 
-        main_to_SEP_map, rBM_sol, SEP_sol
+            main_to_SEP_map, rBM_sol, SEP_sol
         )
         i += 1
     end
@@ -102,13 +101,17 @@ function _cutting_planes(
     main_vars = JuMP.all_variables(model)
 
     #Cutting plane generation
-    ξ_sep = Dict{JuMP.AbstractVariableRef,T}(var => zero(T) for var in main_vars)
+    ξ_sep = Dict{JuMP.AbstractVariableRef,T}(var =>zero(T) for var in main_vars)
     for var in main_vars
-        ξ_sep[var] = 2*(SEP_sol[main_to_SEP_map[var]]-rBM_sol[main_to_rBM_map[var]])
+        ξ_sep[var] = 2*(SEP_sol[main_to_SEP_map[var]]
+            -rBM_sol[main_to_rBM_map[var]]
+        )
     end
     #Cutting plane added to main model.
     main_cut = JuMP.@expression(model, 
-        sum(ξ_sep[var]*(var - SEP_sol[main_to_SEP_map[var]]) for var in main_vars)
+        sum(ξ_sep[var]*(var - SEP_sol[main_to_SEP_map[var]]) 
+            for var in main_vars
+        )
     )
     #Cutting plane added to rBM
     rBM_cut = _replace_variables_in_constraint(main_cut, main_to_rBM_map)
