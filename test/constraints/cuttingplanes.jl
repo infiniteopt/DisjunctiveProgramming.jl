@@ -54,17 +54,13 @@ function test_solve_SEP()
     main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in all_variables(model))
     JuMP.set_optimizer(SEP, method.optimizer)
     JuMP.set_optimizer(rBM, method.optimizer)
+    JuMP.set_silent(rBM)
+    JuMP.set_silent(SEP)
+    JuMP.relax_integrality(rBM)
+    JuMP.relax_integrality(SEP)
     JuMP.@objective(rBM, sense, 
     DP._replace_variables_in_constraint(obj, main_to_rBM_map)
     )
-    for m in [SEP, rBM]
-        binary_vars = filter(is_binary, all_variables(m))
-        for var in binary_vars
-            unset_binary(var)
-            set_lower_bound(var, 0.0)
-            set_upper_bound(var, 1.0)
-        end
-    end
     rBM_to_SEP_map = Dict{var_type, var_type}()
     SEP_to_rBM_map = Dict{var_type, var_type}()
     for (var, rBM_var) in main_to_rBM_map
@@ -77,7 +73,9 @@ function test_solve_SEP()
     @test length(SEP_sol) == length(rBM_sol)
     @test SEP_sol[rBM_to_SEP_map[main_to_rBM_map[x]]] ≈ 4.0
     
-    @test_throws ErrorException DP._solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, "not a dict")
+    @test_throws ErrorException DP._solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map
+        , "not a dict"
+    )
 end
 
 function test_cutting_planes()
@@ -100,17 +98,13 @@ function test_cutting_planes()
     main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in all_variables(model))
     JuMP.set_optimizer(SEP, method.optimizer)
     JuMP.set_optimizer(rBM, method.optimizer)
+    JuMP.set_silent(rBM)
+    JuMP.set_silent(SEP)
+    JuMP.relax_integrality(rBM)
+    JuMP.relax_integrality(SEP)
     JuMP.@objective(rBM, sense, 
     DP._replace_variables_in_constraint(obj, main_to_rBM_map)
     )
-    for m in [SEP, rBM]
-        binary_vars = filter(is_binary, all_variables(m))
-        for var in binary_vars
-            unset_binary(var)
-            set_lower_bound(var, 0.0)
-            set_upper_bound(var, 1.0)
-        end
-    end
     rBM_to_SEP_map = Dict{var_type, var_type}()
     SEP_to_rBM_map = Dict{var_type, var_type}()
     for (var, rBM_var) in main_to_rBM_map
@@ -128,7 +122,9 @@ function test_cutting_planes()
     @test rBM_sol[main_to_rBM_map[x]] ≈ 4.0
     @test SEP_sol[rBM_to_SEP_map[main_to_rBM_map[x]]] ≈ 4.0 atol=1e-3
     
-    @test_throws ErrorException DP._cutting_planes(model, rBM, main_to_rBM_map, main_to_SEP_map, rBM_sol, "not a dict")
+    @test_throws ErrorException DP._cutting_planes(model, rBM, main_to_rBM_map, 
+        main_to_SEP_map, rBM_sol, "not a dict"
+    )
 end
 
 function test_reformulate_model()
