@@ -25,6 +25,7 @@ include("hull.jl")
 include("mbm.jl")
 include("indicator.jl")
 include("print.jl")
+include("extension_api.jl")
 include("utilities.jl")
 include("psplit.jl")
 
