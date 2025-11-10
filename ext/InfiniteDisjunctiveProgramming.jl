@@ -21,20 +21,34 @@ function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
         return true
     end
 end
-function DP.make_disaggregated_variable(
-    model::InfiniteOpt.InfiniteModel,
-    vref::InfiniteOpt.GeneralVariableRef,
-    name,
-    lb,
-    ub
+
+function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
+    T = JuMP.value_type(InfiniteOpt.InfiniteModel)
+    println("EORIGHJREPIUUGERWPIOUHERPIOGEPRGUH")
+    # Extract standard info
+    info = JuMP.VariableInfo(
+        JuMP.has_lower_bound(vref),
+        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
+        JuMP.has_upper_bound(vref),
+        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
+        JuMP.is_fixed(vref),
+        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
+        !isnothing(JuMP.start_value(vref)),
+        JuMP.start_value(vref),
+        JuMP.is_binary(vref),
+        JuMP.is_integer(vref)
     )
+    
+    name = JuMP.name(vref)
+    # InfiniteOpt variables don't use variable_in_set in the same way as JuMP
+    # For now, we set this to nothing (can be extended if needed)
+    set = nothing
+    
+    # Extract variable type (parameter references)
     prefs = InfiniteOpt.parameter_refs(vref)
-    if !isempty(prefs)
-        return JuMP.@variable(model, base_name = name, lower_bound = lb, upper_bound = ub, 
-                              variable_type = InfiniteOpt.Infinite(prefs...))
-    else
-        return JuMP.@variable(model, base_name = name, lower_bound = lb, upper_bound = ub)
-    end
+    var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
+    
+    return DP.VariableProperties(info, name, set, var_type)
 end
 
 # Add necessary @constraint extensions

@@ -1,4 +1,4 @@
-using InfiniteOpt
+using InfiniteOpt, HiGHS
 
 function test_infiniteopt_extension()
     # Initialize the model
