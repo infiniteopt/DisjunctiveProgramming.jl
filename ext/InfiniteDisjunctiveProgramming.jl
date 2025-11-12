@@ -14,12 +14,24 @@ end
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
 # Make necessary extensions for Hull method
-function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
+function DP.requires_disaggregation(
+    vref::Union{InfiniteOpt.GeneralVariableRef, InfiniteOpt.GenericVariableRef})
     if vref.index_type <: InfiniteOpt.InfOptParameter
         return false
     else
         return true
     end
+end
+
+function DP.set_variable_bound_info(vref::InfiniteOpt.GeneralVariableRef, ::DP.Hull)
+    if !JuMP.has_lower_bound(vref) || !JuMP.has_upper_bound(vref)
+        lb = -1e6
+        ub = 1e6
+    else
+        lb = min(0, JuMP.lower_bound(vref))
+        ub = max(0, JuMP.upper_bound(vref))
+    end
+    return lb, ub
 end
 
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
@@ -40,8 +52,6 @@ function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
     )
     
     name = JuMP.name(vref)
-    # InfiniteOpt variables don't use variable_in_set in the same way as JuMP
-    # For now, we set this to nothing (can be extended if needed)
     set = nothing
     
     # Extract variable type (parameter references)
@@ -50,6 +60,33 @@ function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
     
     return DP.VariableProperties(info, name, set, var_type)
 end
+
+function DP._disaggregate_variable(
+    model::M, 
+    lvref::DP.LogicalVariableRef, 
+    vref::InfiniteOpt.GeneralVariableRef, 
+    method::DP._Hull) where {M <: InfiniteOpt.InfiniteModel}
+    lb, ub = DP.variable_bound_info(vref)
+    properties = DP.VariableProperties(vref)
+    println("starting")
+    dvref = DP.create_variable(model, properties)
+    println("completed")
+    push!(DP._reformulation_variables(model), dvref)
+    #get binary indicator variable
+    bvref = DP.binary_variable(lvref)
+    #temp storage
+    push!(method.disjunction_variables[vref], dvref)
+    method.disjunct_variables[vref, bvref] = dvref
+    #create bounding constraints
+    dvname = JuMP.name(dvref)
+    lbname = isempty(dvname) ? "" : "$(dvname)_lower_bound"
+    ubname = isempty(dvname) ? "" : "$(dvname)_upper_bound"
+    new_con_lb_ref = JuMP.@constraint(model, lb*bvref - dvref <= 0, base_name = lbname)
+    new_con_ub_ref = JuMP.@constraint(model, dvref - ub*bvref <= 0, base_name = ubname)
+    push!(DP._reformulation_constraints(model), new_con_lb_ref, new_con_ub_ref)
+    return dvref
+end
+
 
 # Add necessary @constraint extensions
 function JuMP.add_constraint(
