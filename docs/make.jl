@@ -10,5 +10,5 @@ makedocs(
     checkdocs = :none
 )
 deploydocs(;
-    repo="github.com/hdavid16/DisjunctiveProgramming.jl",
+    repo="github.com/infiniteopt/DisjunctiveProgramming.jl",
 )
