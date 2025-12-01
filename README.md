@@ -5,8 +5,8 @@ A Generalized Disjunctive Programming (GDP) extension to JuMP.
 ![logo](logo.png)
 
 [![codecov](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl/graph/badge.svg?token=3FRPGMWF0J)](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl)
-[![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://hdavid16.github.io/DisjunctiveProgramming.jl/stable/)
-[![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://hdavid16.github.io/DisjunctiveProgramming.jl/dev/)
+[![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/dev/)
 
 ## Installation
 

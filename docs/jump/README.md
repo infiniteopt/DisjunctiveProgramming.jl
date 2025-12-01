@@ -10,7 +10,7 @@ into a variety of mixed-integer programs.
 
 | **Current Version**                     | **Documentation**                                                               | **Build Status**                                                                                | **Citation** |
 |:---------------------------------------:|:-------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------------------:|:--------------------------------------:|
-| [![Version](https://docs.juliahub.com/DisjunctiveProgramming/version.svg)](https://juliahub.com/ui/Packages/General/DisjunctiveProgramming) | [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://hdavid16.github.io/DisjunctiveProgramming.jl/stable/) | [![Build Status](https://github.com/infiniteopt/InfiniteOpt.jl/workflows/CI/badge.svg?branch=master)](https://github.com/hdavid16/DisjunctiveProgramming.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl/graph/badge.svg?token=3FRPGMWF0J)](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl) | [![DOI](https://proceedings.juliacon.org/papers/10.21105/jcon.00117/status.svg)](https://doi.org/10.21105/jcon.00117) |
+| [![Version](https://docs.juliahub.com/DisjunctiveProgramming/version.svg)](https://juliahub.com/ui/Packages/General/DisjunctiveProgramming) | [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/) | [![Build Status](https://github.com/infiniteopt/InfiniteOpt.jl/workflows/CI/badge.svg?branch=master)](https://github.com/hdavid16/DisjunctiveProgramming.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl/graph/badge.svg?token=3FRPGMWF0J)](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl) | [![DOI](https://proceedings.juliacon.org/papers/10.21105/jcon.00117/status.svg)](https://doi.org/10.21105/jcon.00117) |
 
 `DisjunctiveProgramming` builds upon `JuMP` to add support GDP modeling objects which include:
 
@@ -42,7 +42,7 @@ julia> import Pkg; Pkg.add("DisjunctiveProgramming")
 
 ## Documentation
 
-Please visit our [documentation pages](https://hdavid16.github.io/DisjunctiveProgramming.jl/stable/)
+Please visit our [documentation pages](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/)
 to learn more.
 
 ## Citing
