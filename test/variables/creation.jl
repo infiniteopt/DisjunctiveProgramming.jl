@@ -119,7 +119,7 @@ function test_variable_copy()
     @test JuMP.has_start_value(recreated) == JuMP.has_start_value(original)
     @test JuMP.start_value(recreated) == JuMP.start_value(original)
     @test JuMP.name(recreated) == JuMP.name(original)
-    println("##################################")
+
     @test original in JuMP.all_variables(model1)
     @test recreated in JuMP.all_variables(model2)
     @test !(original in JuMP.all_variables(model2))

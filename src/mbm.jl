@@ -354,7 +354,6 @@ function _mini_model(
     sub_model = _copy_model(model)
     new_vars = Dict{var_type, var_type}()
     for var in JuMP.all_variables(model)
-        println(var)
         new_vars[var] = variable_copy(sub_model, var)
     end
     for con in [JuMP.constraint_object(con) for con in constraints]

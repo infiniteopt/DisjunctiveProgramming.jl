@@ -518,3 +518,31 @@ function variable_copy(
     props = VariableProperties(vref)
     return create_variable(model, props)
 end
+
+function get_variable_info(vref::JuMP.AbstractVariableRef; 
+    has_lb::Bool = JuMP.has_lower_bound(vref), 
+    has_ub::Bool = JuMP.has_upper_bound(vref), 
+    has_fix::Bool = JuMP.is_fixed(vref), 
+    has_start::Bool = JuMP.has_start_value(vref), 
+    has_binary::Bool = JuMP.is_binary(vref), 
+    has_integer::Bool = JuMP.is_integer(vref), 
+    lower_bound::Union{Number, Function} = has_lb ? JuMP.lower_bound(vref) : 0, 
+    upper_bound::Union{Number, Function} = has_ub ? JuMP.upper_bound(vref) : 0, 
+    fixed_value::Union{Number, Function} = has_fix ? JuMP.fix_value(vref) : 0, 
+    start_value::Union{Number, Function} = has_start ? JuMP.start_value(vref) : 0, 
+    binary::Bool = has_binary ? JuMP.is_binary(vref) : false, 
+    integer::Bool = has_integer ? JuMP.is_integer(vref) : false)
+    info = JuMP.VariableInfo(
+        has_lb,
+        lower_bound,
+        has_ub,
+        upper_bound,
+        has_fix,
+        fixed_value,
+        has_start,
+        start_value,
+        binary,
+        integer
+    )
+    return info
+end

@@ -620,19 +620,15 @@ mutable struct VariableProperties{L, U, F, S, SET, T}
 end 
 
 function VariableProperties(vref::JuMP.GenericVariableRef{T}) where T
-    info = JuMP.VariableInfo(
-        JuMP.has_lower_bound(vref),
-        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
-        JuMP.has_upper_bound(vref),
-        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
-        JuMP.is_fixed(vref),
-        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
-        !isnothing(JuMP.start_value(vref)),
-        JuMP.start_value(vref),
-        JuMP.is_binary(vref),
-        JuMP.is_integer(vref)
-    )
+    info = get_variable_info(vref)
     name = JuMP.name(vref)
     set = JuMP.is_variable_in_set(vref) ? JuMP.moi_set(JuMP.constraint_object(JuMP.VariableInSetRef(vref))) : nothing
     return VariableProperties(info, name, set, nothing)
 end
+
+function VariableProperties(vref::JuMP.AbstractVariableRef)
+    info = get_variable_info(vref)
+    name = JuMP.name(vref)
+    return VariableProperties(info, name, nothing, nothing)
+end
+

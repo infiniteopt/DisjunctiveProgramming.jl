@@ -11,82 +11,61 @@ function DP.InfiniteGDPModel(args...; kwargs...)
         InfiniteOpt.InfOptConstraintRef
         }(args...; kwargs...)
 end
+
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
 # Make necessary extensions for Hull method
-function DP.requires_disaggregation(
-    vref::Union{InfiniteOpt.GeneralVariableRef, InfiniteOpt.GenericVariableRef})
-    if vref.index_type <: InfiniteOpt.InfOptParameter
-        return false
-    else
+function is_parameter(vref::InfiniteOpt.GeneralVariableRef)
+    dref = InfiniteOpt.dispatch_variable_ref(vref)
+    if typeof(dref) <: Union{InfiniteOpt.DependentParameterRef, InfiniteOpt.IndependentParameterRef, InfiniteOpt.ParameterFunctionRef}
         return true
+    else
+        return false
     end
 end
 
-function DP.set_variable_bound_info(vref::InfiniteOpt.GeneralVariableRef, ::DP.Hull)
-    if !JuMP.has_lower_bound(vref) || !JuMP.has_upper_bound(vref)
-        lb = -1e6
-        ub = 1e6
-    else
-        lb = min(0, JuMP.lower_bound(vref))
-        ub = max(0, JuMP.upper_bound(vref))
-    end
-    return lb, ub
+function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
+    return !is_parameter(vref)
 end
+
+# Add to InfiniteDisjunctiveProgramming.jl
+# Override for affine expressions to handle parameters
+function DP._disaggregate_expression(
+    model::M,
+    aff::JuMP.GenericAffExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::DP._Hull
+    ) where {M <: InfiniteOpt.InfiniteModel}
+    # Initialize as QuadExpr instead of AffExpr to handle parameter*binary terms
+    new_expr = JuMP.@expression(model, aff.constant*bvref + 0*bvref*bvref)  # Trick to make it QuadExpr
+    for (vref, coeff) in aff.terms
+        if JuMP.is_binary(vref)
+            JuMP.add_to_expression!(new_expr, coeff*vref)
+        elseif vref isa InfiniteOpt.GeneralVariableRef && is_parameter(vref)
+            # Parameters need perspective function applied (creates quadratic term)
+            JuMP.add_to_expression!(new_expr, coeff*vref*bvref)
+        elseif !haskey(method.disjunct_variables, (vref, bvref))
+            # Non-disaggregated variables
+            JuMP.add_to_expression!(new_expr, coeff*vref)
+        else
+            # Disaggregated variables
+            dvref = method.disjunct_variables[vref, bvref]
+            JuMP.add_to_expression!(new_expr, coeff*dvref)
+        end
+    end
+    return new_expr
+end
+
+
 
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
-    T = JuMP.value_type(InfiniteOpt.InfiniteModel)
-    println("EORIGHJREPIUUGERWPIOUHERPIOGEPRGUH")
-    # Extract standard info
-    info = JuMP.VariableInfo(
-        JuMP.has_lower_bound(vref),
-        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
-        JuMP.has_upper_bound(vref),
-        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
-        JuMP.is_fixed(vref),
-        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
-        !isnothing(JuMP.start_value(vref)),
-        JuMP.start_value(vref),
-        JuMP.is_binary(vref),
-        JuMP.is_integer(vref)
-    )
-    
+    info = DP.get_variable_info(vref)
     name = JuMP.name(vref)
     set = nothing
-    
-    # Extract variable type (parameter references)
     prefs = InfiniteOpt.parameter_refs(vref)
     var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
-    
     return DP.VariableProperties(info, name, set, var_type)
 end
-
-function DP._disaggregate_variable(
-    model::M, 
-    lvref::DP.LogicalVariableRef, 
-    vref::InfiniteOpt.GeneralVariableRef, 
-    method::DP._Hull) where {M <: InfiniteOpt.InfiniteModel}
-    lb, ub = DP.variable_bound_info(vref)
-    properties = DP.VariableProperties(vref)
-    println("starting")
-    dvref = DP.create_variable(model, properties)
-    println("completed")
-    push!(DP._reformulation_variables(model), dvref)
-    #get binary indicator variable
-    bvref = DP.binary_variable(lvref)
-    #temp storage
-    push!(method.disjunction_variables[vref], dvref)
-    method.disjunct_variables[vref, bvref] = dvref
-    #create bounding constraints
-    dvname = JuMP.name(dvref)
-    lbname = isempty(dvname) ? "" : "$(dvname)_lower_bound"
-    ubname = isempty(dvname) ? "" : "$(dvname)_upper_bound"
-    new_con_lb_ref = JuMP.@constraint(model, lb*bvref - dvref <= 0, base_name = lbname)
-    new_con_ub_ref = JuMP.@constraint(model, dvref - ub*bvref <= 0, base_name = ubname)
-    push!(DP._reformulation_constraints(model), new_con_lb_ref, new_con_ub_ref)
-    return dvref
-end
-
 
 # Add necessary @constraint extensions
 function JuMP.add_constraint(
