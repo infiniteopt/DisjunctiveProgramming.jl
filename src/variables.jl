@@ -546,3 +546,18 @@ function get_variable_info(vref::JuMP.AbstractVariableRef;
     )
     return info
 end
+
+function _blank_variable_info()
+    return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
+end
+
+function create_blank_variable(model::JuMP.AbstractModel, name::String = "")
+    info = _blank_variable_info()
+    var = JuMP.build_variable(error, info)
+    return JuMP.add_variable(model, var, name)
+end
+
+# Fallback that accepts an expression for parameter inference (used by extensions)
+function create_blank_variable(model::JuMP.AbstractModel, name::String, expr)
+    return create_blank_variable(model, name)
+end

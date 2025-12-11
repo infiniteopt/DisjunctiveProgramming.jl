@@ -488,7 +488,7 @@ struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
     function PSplit(n_parts::Int, model::JuMP.AbstractModel)
         n_parts > 0 || error("Number of partitions must be 
         positive, got $n_parts")
-        variables = collect(JuMP.all_variables(model))
+        variables = _all_variables(model)
         n_vars = length(variables)
         
         n_parts = min(n_parts, n_vars)

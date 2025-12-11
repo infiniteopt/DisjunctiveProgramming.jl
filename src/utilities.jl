@@ -8,6 +8,17 @@ function _copy_model(
     return M()
 end
 
+################################################################################
+#                              ALL VARIABLES
+################################################################################
+"""
+    _all_variables(model::JuMP.AbstractModel)
+
+Returns all variable references in the model.
+Extend this for model types that have additional ref types (e.g., parameters).
+"""
+_all_variables(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
+
 """
     JuMP.copy_extension_data(
         data::GDPData,
