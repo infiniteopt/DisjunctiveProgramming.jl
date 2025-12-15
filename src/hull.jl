@@ -76,7 +76,7 @@ end
 #                              CONSTRAINT DISAGGREGATION
 ################################################################################
 # variable
-function _disaggregate_expression(
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     vref::JuMP.AbstractVariableRef, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
@@ -89,7 +89,7 @@ function _disaggregate_expression(
     end
 end
 # affine expression
-function _disaggregate_expression(
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     aff::JuMP.GenericAffExpr, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
@@ -110,14 +110,14 @@ end
 # quadratic expression
 # TODO review what happens when there are bilinear terms with binary variables involved since these are not being disaggregated 
 #   (e.g., complementarity constraints; though likely irrelevant)...
-function _disaggregate_expression(
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     quad::JuMP.GenericQuadExpr, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
     method::_Hull
     )
     #get affine part
-    new_expr = _disaggregate_expression(model, quad.aff, bvref, method)
+    new_expr = disaggregate_expression(model, quad.aff, bvref, method)
     #get quadratic part
     ϵ = method.value
     for (pair, coeff) in quad.terms
@@ -244,7 +244,7 @@ function reformulate_disjunct_constraint(
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}}
-    new_func = _disaggregate_expression(model, con.func, bvref, method)
+    new_func = disaggregate_expression(model, con.func, bvref, method)
     set_value = _set_value(con.set)
     new_func -= set_value*bvref
     reform_con = JuMP.build_constraint(error, new_func, S(0))
@@ -257,7 +257,7 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros}, R}
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
-        _disaggregate_expression(model, con.func[i], bvref, method)
+        disaggregate_expression(model, con.func[i], bvref, method)
     )
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
@@ -305,7 +305,7 @@ function reformulate_disjunct_constraint(
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: _MOI.Interval}
-    new_func = _disaggregate_expression(model, con.func, bvref, method)
+    new_func = disaggregate_expression(model, con.func, bvref, method)
     new_func_gt = JuMP.@expression(model, new_func - con.set.lower*bvref)
     new_func_lt = JuMP.@expression(model, new_func - con.set.upper*bvref)
     reform_con_gt = JuMP.build_constraint(error, new_func_gt, _MOI.GreaterThan(0))

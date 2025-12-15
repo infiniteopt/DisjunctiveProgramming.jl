@@ -12,13 +12,30 @@ end
 #                              ALL VARIABLES
 ################################################################################
 """
-    _all_variables(model::JuMP.AbstractModel)
+    all_variables(model::JuMP.AbstractModel)
 
 Returns all variable references in the model.
 Extend this for model types that have additional ref types (e.g., parameters).
 """
-_all_variables(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
+all_variables(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
 
+################################################################################
+#                              GET CONSTANT
+################################################################################
+"""
+    get_constant(expr)
+
+Returns the constant portion of an expression. Extendable for model types where
+additional terms should be treated as constants.
+"""
+get_constant(expr::JuMP.GenericAffExpr) = JuMP.constant(expr)
+get_constant(expr::JuMP.GenericQuadExpr) = JuMP.constant(expr)
+get_constant(expr::Number) = expr
+get_constant(expr::JuMP.AbstractVariableRef) = zero(Float64)
+
+################################################################################
+#                              MODEL COPYING
+################################################################################
 """
     JuMP.copy_extension_data(
         data::GDPData,

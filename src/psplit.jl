@@ -2,22 +2,11 @@
 #                              BUILD PARTITIONED EXPRESSION
 ################################################################################
 
-"""
-    _get_constant(expr)
-
-Returns the constant portion of an expression. Extend for model types where
-additional terms should be treated as constants (e.g., parameters in InfiniteOpt).
-"""
-_get_constant(expr::JuMP.GenericAffExpr) = JuMP.constant(expr)
-_get_constant(expr::JuMP.GenericQuadExpr) = JuMP.constant(expr)
-_get_constant(expr::Number) = expr
-_get_constant(expr::JuMP.AbstractVariableRef) = zero(Float64)
-
 function _build_partitioned_expression(
     expr::T,
     partition_variables::Vector{<:JuMP.AbstractVariableRef}
 ) where {T <: JuMP.GenericAffExpr}
-    constant = _get_constant(expr)
+    constant = get_constant(expr)
     new_affexpr = zero(T)
     for var in partition_variables
         JuMP.add_to_expression!(new_affexpr, JuMP.coefficient(expr, var), var) 
@@ -30,7 +19,7 @@ function _build_partitioned_expression(
     partition_variables::Vector{<:JuMP.AbstractVariableRef}
 ) where {T <: JuMP.GenericQuadExpr}
     new_quadexpr = zero(T)
-    constant = _get_constant(expr)
+    constant = get_constant(expr)
     for var in partition_variables
         for (pair, coeff) in expr.terms
             if pair.a == var && pair.b == var
