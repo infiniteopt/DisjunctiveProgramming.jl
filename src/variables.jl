@@ -575,6 +575,16 @@ end
 function _blank_variable_info()
     return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
 end
+"""
+    _blank_variable_info()::JuMP.VariableInfo
+
+Creates a blank `JuMP.VariableInfo` object with no bounds, no fixed value, 
+no start value, and neither binary nor integer constraints.
+
+## Returns
+A `JuMP.VariableInfo` object with all flags set to `false` and all numeric 
+values set to `NaN`.
+"""
 
 
 function create_blank_variable(model::JuMP.AbstractModel, name::String = "", expr = nothing)
