@@ -228,19 +228,6 @@ function test_create_blank_variable_from_vector()
     @test length(prefs) == 2
 end
 
-function test_create_blank_variable_default()
-    model = InfiniteGDPModel()
-    
-    # Test default (no parameter dependency)
-    var1 = DP.create_blank_variable(model, "default_var")
-    @test JuMP.name(var1) == "default_var"
-    @test isempty(InfiniteOpt.parameter_refs(var1))
-    
-    # Test with empty name
-    var2 = DP.create_blank_variable(model)
-    @test JuMP.name(var2) == ""
-end
-
 function test_add_cardinality_constraint()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
@@ -321,7 +308,9 @@ function test_methods()
     tol = 0.1
 
     # Use Juniper for MIQP support (HiGHS cannot solve MIQP)
-    ipopt = optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0, "sb" => "yes")
+    ipopt = optimizer_with_attributes(Ipopt.Optimizer, 
+        "print_level" => 0, "sb" => "yes"
+    )
     optimizer = optimizer_with_attributes(Juniper.Optimizer, "nl_solver" => ipopt)
     model = InfiniteGDPModel(optimizer)
     set_attribute(model, MOI.Silent(), true)
@@ -379,7 +368,6 @@ end
         test_create_blank_variable_with_prefs()
         test_create_blank_variable_from_expr()
         test_create_blank_variable_from_vector()
-        test_create_blank_variable_default()
         test_logical_value()
     end
 

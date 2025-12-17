@@ -519,6 +519,31 @@ function variable_copy(
     return create_variable(model, props)
 end
 
+"""
+    get_variable_info(vref::JuMP.AbstractVariableRef; kwargs...)::JuMP.VariableInfo
+
+Extracts variable information from a JuMP variable reference and returns a `JuMP.VariableInfo` 
+object. This function retrieves bounds, fixed values, start values, and binary/integer status
+from the variable reference.
+
+## Keyword Arguments
+- `has_lb::Bool`: Whether the variable has a lower bound (default: queries `vref`)
+- `has_ub::Bool`: Whether the variable has an upper bound (default: queries `vref`)
+- `has_fix::Bool`: Whether the variable is fixed (default: queries `vref`)
+- `has_start::Bool`: Whether the variable has a start value (default: queries `vref`)
+- `has_binary::Bool`: Whether the variable is binary (default: queries `vref`)
+- `has_integer::Bool`: Whether the variable is integer (default: queries `vref`)
+- `lower_bound`: The lower bound value (default: queries `vref` if has_lb, else 0)
+- `upper_bound`: The upper bound value (default: queries `vref` if has_ub, else 0)
+- `fixed_value`: The fixed value (default: queries `vref` if has_fix, else 0)
+- `start_value`: The start value (default: queries `vref` if has_start, else 0)
+- `binary::Bool`: Binary status (default: queries `vref`)
+- `integer::Bool`: Integer status (default: queries `vref`)
+
+## Returns
+A `JuMP.VariableInfo` object containing all the variable's attributes.
+"""
+
 function get_variable_info(vref::JuMP.AbstractVariableRef; 
     has_lb::Bool = JuMP.has_lower_bound(vref), 
     has_ub::Bool = JuMP.has_upper_bound(vref), 
@@ -551,13 +576,9 @@ function _blank_variable_info()
     return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
 end
 
-function create_blank_variable(model::JuMP.AbstractModel, name::String = "")
+
+function create_blank_variable(model::JuMP.AbstractModel, name::String = "", expr = nothing)
     info = _blank_variable_info()
     var = JuMP.build_variable(error, info)
     return JuMP.add_variable(model, var, name)
-end
-
-# Fallback that accepts an expression for parameter inference (used by extensions)
-function create_blank_variable(model::JuMP.AbstractModel, name::String, expr)
-    return create_blank_variable(model, name)
 end

@@ -78,10 +78,6 @@ function DP.create_blank_variable(model::InfiniteOpt.InfiniteModel, name::String
     return DP.create_blank_variable(model, name, Tuple(all_prefs))
 end
 
-function DP.create_blank_variable(model::InfiniteOpt.InfiniteModel, name::String = "")
-    return DP.create_blank_variable(model, name, ())
-end
-
 function JuMP.value(vref::DP.LogicalVariableRef{InfiniteOpt.InfiniteModel})
     return JuMP.value(DP.binary_variable(vref)) .>= 0.5
 end
