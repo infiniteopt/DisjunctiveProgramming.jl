@@ -543,7 +543,6 @@ from the variable reference.
 ## Returns
 A `JuMP.VariableInfo` object containing all the variable's attributes.
 """
-
 function get_variable_info(vref::JuMP.AbstractVariableRef; 
     has_lb::Bool = JuMP.has_lower_bound(vref), 
     has_ub::Bool = JuMP.has_upper_bound(vref), 
@@ -572,11 +571,8 @@ function get_variable_info(vref::JuMP.AbstractVariableRef;
     return info
 end
 
-function _blank_variable_info()
-    return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
-end
 """
-    _blank_variable_info()::JuMP.VariableInfo
+    _free_variable_info()::JuMP.VariableInfo
 
 Creates a blank `JuMP.VariableInfo` object with no bounds, no fixed value, 
 no start value, and neither binary nor integer constraints.
@@ -585,10 +581,6 @@ no start value, and neither binary nor integer constraints.
 A `JuMP.VariableInfo` object with all flags set to `false` and all numeric 
 values set to `NaN`.
 """
-
-
-function create_blank_variable(model::JuMP.AbstractModel, name::String = "", expr = nothing)
-    info = _blank_variable_info()
-    var = JuMP.build_variable(error, info)
-    return JuMP.add_variable(model, var, name)
+function _free_variable_info()
+    return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
 end

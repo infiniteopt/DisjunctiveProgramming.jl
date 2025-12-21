@@ -15,9 +15,9 @@ InfiniteDisjunctiveProgramming = "InfiniteOpt"
 
 [compat]
 Aqua = "0.8"
-JuMP = "1.29"
+JuMP = "1.18"
 Reexport = "1"
-julia = "1.10"
+julia = "1.6"
 Juniper = "0.9.3"
 Ipopt = "1.9.0"
 InfiniteOpt = "0.6"

@@ -286,7 +286,8 @@ function _build_partitioned_constraint(
     part_con = Vector{JuMP.AbstractConstraint}(undef, p)
     for i in 1:p
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
-        v[i] = create_blank_variable(model, "v_$(hash(con))_$(i)", func)
+        v[i] = create_variable(model, VariableProperties(func))
+        JuMP.set_name(v[i], "v_$(hash(con))_$(i)")
         part_con[i] = JuMP.build_constraint(error, func - v[i], 
         MOI.LessThan(zero(val_type))
         )
@@ -309,7 +310,8 @@ function _build_partitioned_constraint(
     _, constant = _build_partitioned_expression(con.func, method.partition[p])
     for i in 1:p
         func, _ = _build_partitioned_expression(con.func, method.partition[i])
-        v[i] = create_blank_variable(model, "v_$(hash(con))_$(i)", func)
+        v[i] = create_variable(model, VariableProperties(func))
+        JuMP.set_name(v[i], "v_$(hash(con))_$(i)")
         part_con[i] = JuMP.build_constraint(error, -func - v[i], 
         MOI.LessThan(zero(val_type))
         )
@@ -333,8 +335,10 @@ function _build_partitioned_constraint(
     v = Matrix{JuMP.variable_ref_type(M)}(undef, p, 2)
     for i in 1:p
         func, _= _build_partitioned_expression(con.func, method.partition[i])
-        v[i,1] = create_blank_variable(model, "v_$(hash(con))_$(i)_1", func)
-        v[i,2] = create_blank_variable(model, "v_$(hash(con))_$(i)_2", func)
+        v[i,1] = create_variable(model, VariableProperties(func))
+        v[i,2] = create_variable(model, VariableProperties(func))
+        JuMP.set_name(v[i,1], "v_$(hash(con))_$(i)_1")
+        JuMP.set_name(v[i,2], "v_$(hash(con))_$(i)_2")
         part_con_lt[i] = JuMP.build_constraint(error, 
         func - v[i,1], MOI.LessThan(zero(val_type))
         )
@@ -366,7 +370,8 @@ function _build_partitioned_constraint(
         func = JuMP.@expression(model, [j = 1:d], part_expr[j][1])
         constants .= [part_expr[j][2] for j in 1:d]
         for j in 1:d
-            v[i,j] = create_blank_variable(model, "v_$(hash(con))_$(i)_$(j)", func[j])
+            v[i,j] = create_variable(model, VariableProperties(func[j]))
+            JuMP.set_name(v[i,j], "v_$(hash(con))_$(i)_$(j)")
             _bound_auxiliary(model, v[i,j], func[j], method)
         end
         part_con[i] = JuMP.build_constraint(error, 
@@ -398,7 +403,8 @@ function _build_partitioned_constraint(
         func = JuMP.@expression(model, [j = 1:d], -part_expr[j][1])
         constants .= [-part_expr[j][2] for j in 1:d]
         for j in 1:d
-            v[i,j] = create_blank_variable(model, "v_$(hash(con))_$(i)_$(j)", func[j])
+            v[i,j] = create_variable(model, VariableProperties(func[j]))
+            JuMP.set_name(v[i,j], "v_$(hash(con))_$(i)_$(j)")
             _bound_auxiliary(model, v[i,j], func[j], method)
         end
         part_con[i] = JuMP.build_constraint(error, func - v[i,:], _MOI.Nonpositives(d))
@@ -429,8 +435,10 @@ function _build_partitioned_constraint(
         func = JuMP.@expression(model, [j = 1:d], part_expr[j][1])        
         constants .= [part_expr[j][2] for j in 1:d]
         for j in 1:d
-            v[i,j,1] = create_blank_variable(model, "v_$(hash(con))_$(i)_$(j)_1", func[j])
-            v[i,j,2] = create_blank_variable(model, "v_$(hash(con))_$(i)_$(j)_2", func[j])
+            v[i,j,1] = create_variable(model, VariableProperties(func[j]))
+            v[i,j,2] = create_variable(model, VariableProperties(func[j]))
+            JuMP.set_name(v[i,j,1], "v_$(hash(con))_$(i)_$(j)_1")
+            JuMP.set_name(v[i,j,2], "v_$(hash(con))_$(i)_$(j)_2")
             _bound_auxiliary(model, v[i,j,1], func[j], method)
             _bound_auxiliary(model, v[i,j,2], -func[j], method)
         end

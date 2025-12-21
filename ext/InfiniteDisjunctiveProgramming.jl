@@ -26,7 +26,7 @@ end
 ################################################################################
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
-function is_parameter(vref::InfiniteOpt.GeneralVariableRef)
+function _is_parameter(vref::InfiniteOpt.GeneralVariableRef)
     dref = InfiniteOpt.dispatch_variable_ref(vref)
     if typeof(dref) <: Union{
         InfiniteOpt.DependentParameterRef, 
@@ -41,7 +41,7 @@ function is_parameter(vref::InfiniteOpt.GeneralVariableRef)
 end
 
 function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
-    return !is_parameter(vref)
+    return !_is_parameter(vref)
 end
 
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
@@ -53,29 +53,32 @@ function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
     return DP.VariableProperties(info, name, set, var_type)
 end
 
-function DP.create_blank_variable(model::InfiniteOpt.InfiniteModel, name::String, prefs::Tuple)
-    info = DP._blank_variable_info()
-    if isempty(prefs)
-        var = JuMP.build_variable(error, info)
-    else
-        var = JuMP.build_variable(error, info, InfiniteOpt.Infinite(prefs...))
-    end
-    return JuMP.add_variable(model, var, name)
-end
-
-function DP.create_blank_variable(model::InfiniteOpt.InfiniteModel, name::String, expr)
+# Extract parameter refs from expression and return VariableProperties with Infinite type
+function DP.VariableProperties(expr::JuMP.GenericAffExpr{C, InfiniteOpt.GeneralVariableRef}) where C
     prefs = InfiniteOpt.parameter_refs(expr)
-    return DP.create_blank_variable(model, name, prefs)
+    info = DP._free_variable_info()
+    var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
+    return DP.VariableProperties(info, "", nothing, var_type)
 end
 
-function DP.create_blank_variable(model::InfiniteOpt.InfiniteModel, name::String, exprs::Vector)
+function DP.VariableProperties(expr::JuMP.GenericQuadExpr{C, InfiniteOpt.GeneralVariableRef}) where C
+    prefs = InfiniteOpt.parameter_refs(expr)
+    info = DP._free_variable_info()
+    var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
+    return DP.VariableProperties(info, "", nothing, var_type)
+end
+
+function DP.VariableProperties(exprs::Vector{<:Union{InfiniteOpt.GeneralVariableRef, JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef}, JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef}}})
     all_prefs = Set{InfiniteOpt.GeneralVariableRef}()
     for expr in exprs
         for pref in InfiniteOpt.parameter_refs(expr)
             push!(all_prefs, pref)
         end
     end
-    return DP.create_blank_variable(model, name, Tuple(all_prefs))
+    prefs = Tuple(all_prefs)
+    info = DP._free_variable_info()
+    var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
+    return DP.VariableProperties(info, "", nothing, var_type)
 end
 
 function JuMP.value(vref::DP.LogicalVariableRef{InfiniteOpt.InfiniteModel})
@@ -132,7 +135,7 @@ function DP.get_constant(expr::JuMP.GenericAffExpr{T, InfiniteOpt.GeneralVariabl
     constant = JuMP.constant(expr)
     param_expr = zero(typeof(expr))
     for (var, coeff) in expr.terms
-        if is_parameter(var)
+        if _is_parameter(var)
             JuMP.add_to_expression!(param_expr, coeff, var)
         end
     end
@@ -149,7 +152,7 @@ function DP.disaggregate_expression(
     for (vref, coeff) in aff.terms
         if JuMP.is_binary(vref)
             push!(terms, coeff * vref)
-        elseif vref isa InfiniteOpt.GeneralVariableRef && is_parameter(vref)
+        elseif vref isa InfiniteOpt.GeneralVariableRef && _is_parameter(vref)
             push!(terms, coeff * vref * bvref)
         elseif !haskey(method.disjunct_variables, (vref, bvref))
             push!(terms, coeff * vref)

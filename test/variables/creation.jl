@@ -166,30 +166,25 @@ function test_get_variable_info()
     @test info_override.upper_bound == 20.0  # Overridden
 end
 
-function test_create_blank_variable()
+function test_variable_properties_from_expr()
     model = Model()
     
-    # Test with name
-    var1 = DP.create_blank_variable(model, "blank_var")
-    @test JuMP.name(var1) == "blank_var"
-    @test JuMP.has_lower_bound(var1) == false
-    @test JuMP.has_upper_bound(var1) == false
-    @test JuMP.is_fixed(var1) == false
-    @test JuMP.is_binary(var1) == false
-    @test JuMP.is_integer(var1) == false
-    @test var1 in JuMP.all_variables(model)
-    
-    # Test without name (default empty string)
-    var2 = DP.create_blank_variable(model)
-    @test JuMP.name(var2) == ""
-    @test var2 in JuMP.all_variables(model)
-    
-    # Test fallback with expression (for extensions)
+    # Test with expression (for extensions - base ignores it)
     @variable(model, x)
     expr = 2*x + 1
-    var3 = DP.create_blank_variable(model, "from_expr", expr)
-    @test JuMP.name(var3) == "from_expr"
-    @test var3 in JuMP.all_variables(model)
+    props = DP.VariableProperties(expr)
+    @test props.name == ""
+    @test props.info.has_lb == false
+    @test props.info.has_ub == false
+    var = DP.create_variable(model, props)
+    JuMP.set_name(var, "from_expr")
+    @test JuMP.name(var) == "from_expr"
+    @test JuMP.has_lower_bound(var) == false
+    @test JuMP.has_upper_bound(var) == false
+    @test JuMP.is_fixed(var) == false
+    @test JuMP.is_binary(var) == false
+    @test JuMP.is_integer(var) == false
+    @test var in JuMP.all_variables(model)
 end
 
 @testset "Variable Creation" begin
@@ -199,5 +194,5 @@ end
     test_complete_workflow()
     test_variable_copy()
     test_get_variable_info()
-    test_create_blank_variable()
+    test_variable_properties_from_expr()
 end

@@ -632,3 +632,20 @@ function VariableProperties(vref::JuMP.AbstractVariableRef)
     return VariableProperties(info, name, nothing, nothing)
 end
 
+"""
+    VariableProperties(expr)::VariableProperties
+
+Creates a `VariableProperties` object with blank variable info (no bounds, not fixed, 
+not binary/integer) from an expression. The `expr` argument is provided for 
+extensions to infer additional properties (e.g., parameter dependencies in InfiniteOpt).
+
+## Arguments
+- `expr`: Expression for extensions to extract metadata from
+
+## Returns
+A `VariableProperties` object with blank info.
+"""
+function VariableProperties(expr)
+    info = _free_variable_info()
+    return VariableProperties(info, "", nothing, nothing)
+end

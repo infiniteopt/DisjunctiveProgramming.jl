@@ -55,7 +55,7 @@ function test_infinite_logical()
     @test binary_variable(y) isa InfiniteOpt.GeneralVariableRef
 end
 
-function test_is_parameter()
+function test__is_parameter()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s[1:2] ∈ [0, 1], independent = true)
@@ -64,17 +64,17 @@ function test_is_parameter()
     @variable(model, y)
     
     # Test DependentParameterRef
-    @test IDP.is_parameter(t) == true
+    @test IDP._is_parameter(t) == true
     
     # Test IndependentParameterRef
-    @test IDP.is_parameter(s[1]) == true
+    @test IDP._is_parameter(s[1]) == true
     
     # Test FiniteParameterRef
-    @test IDP.is_parameter(p) == true
+    @test IDP._is_parameter(p) == true
     
     # Test non-parameter variables (else branch)
-    @test IDP.is_parameter(x) == false
-    @test IDP.is_parameter(y) == false
+    @test IDP._is_parameter(x) == false
+    @test IDP._is_parameter(y) == false
 end
 
 function test_requires_disaggregation()
@@ -119,7 +119,7 @@ function test_get_constant()
     @finite_parameter(model, p == 2.0)
     @variable(model, x, Infinite(t))
     
-    # Test expression with parameter terms (is_parameter branch)
+    # Test expression with parameter terms (_is_parameter branch)
     expr2 = @expression(model, 3.0 + 2*t + x)
     constant2 = DP.get_constant(expr2)
     @test JuMP.constant(constant2) == 3.0
@@ -184,22 +184,7 @@ function test_variable_properties_infiniteopt()
     @test props_y.variable_type === nothing
 end
 
-function test_create_blank_variable_with_prefs()
-    model = InfiniteGDPModel()
-    @infinite_parameter(model, t ∈ [0, 1])
-    @infinite_parameter(model, s ∈ [0, 2])
-    
-    var1 = DP.create_blank_variable(model, "test_var", (t,))
-    @test JuMP.name(var1) == "test_var"
-    @test InfiniteOpt.parameter_refs(var1) == (t,)
-    
-    var2 = DP.create_blank_variable(model, "multi_var", (t, s))
-    prefs2 = InfiniteOpt.parameter_refs(var2)
-    @test t in prefs2
-    @test s in prefs2
-end
-
-function test_create_blank_variable_from_expr()
+function test_variable_properties_from_expr()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s ∈ [0, 2])
@@ -208,12 +193,17 @@ function test_create_blank_variable_from_expr()
     
     # Test inferring prefs from single expression
     expr = @expression(model, 2*x + y)
-    var1 = DP.create_blank_variable(model, "inferred_var", expr)
+    props = DP.VariableProperties(expr)
+    @test props.name == ""
+    @test props.variable_type isa InfiniteOpt.Infinite
+    @test Set(props.variable_type.parameter_refs) == Set((t, s))
+    var1 = DP.create_variable(model, props)
+    JuMP.set_name(var1, "inferred_var")
     @test JuMP.name(var1) == "inferred_var"
     @test InfiniteOpt.parameter_refs(var1) == (t, s)
 end
 
-function test_create_blank_variable_from_vector()
+function test_variable_properties_from_vector()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s ∈ [0, 2])
@@ -222,7 +212,9 @@ function test_create_blank_variable_from_vector()
     
     # Test inferring prefs from vector of expressions
     exprs = [@expression(model, x + 1), @expression(model, y + 2)]
-    var1 = DP.create_blank_variable(model, "vector_var", exprs)
+    props = DP.VariableProperties(exprs)
+    var1 = DP.create_variable(model, props)
+    JuMP.set_name(var1, "vector_var")
     @test JuMP.name(var1) == "vector_var"
     prefs = InfiniteOpt.parameter_refs(var1)
     @test length(prefs) == 2
@@ -362,12 +354,11 @@ end
 
     @testset "Variables" begin
         test_infinite_logical()
-        test_is_parameter()
+        test__is_parameter()
         test_requires_disaggregation()
         test_variable_properties_infiniteopt()
-        test_create_blank_variable_with_prefs()
-        test_create_blank_variable_from_expr()
-        test_create_blank_variable_from_vector()
+        test_variable_properties_from_expr()
+        test_variable_properties_from_vector()
         test_logical_value()
     end
 

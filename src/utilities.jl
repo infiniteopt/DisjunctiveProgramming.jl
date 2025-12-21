@@ -31,7 +31,9 @@ additional terms should be treated as constants.
 get_constant(expr::JuMP.GenericAffExpr) = JuMP.constant(expr)
 get_constant(expr::JuMP.GenericQuadExpr) = JuMP.constant(expr)
 get_constant(expr::Number) = expr
-get_constant(expr::JuMP.AbstractVariableRef) = zero(Float64)
+function get_constant(expr::JuMP.AbstractVariableRef)
+    return zero(JuMP.value_type(typeof(JuMP.owner_model(expr))))
+end
 
 ################################################################################
 #                              MODEL COPYING
@@ -178,7 +180,9 @@ function copy_gdp_data(
     # Copying indicator to constraints
     for (lv_ref, con_refs) in old_gdp.indicator_to_constraints
         new_lvar_ref = lv_map[lv_ref]
-        new_con_refs = Vector{Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}}()
+        new_con_refs = Vector{
+            Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}
+        }()
         for con_ref in con_refs
             new_con_ref = _remap_indicator_to_constraint(con_ref, 
             disj_con_map, disj_map
