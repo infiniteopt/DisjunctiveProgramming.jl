@@ -187,10 +187,26 @@ function test_variable_properties_from_expr()
     @test var in JuMP.all_variables(model)
 end
 
+function test_create_variable_with_set()
+    model = Model()
+    
+    info = DP._free_variable_info()
+    props = DP.VariableProperties(info, "test_var", MOI.ZeroOne(), nothing)
+    
+    @test props.set !== nothing
+    
+    var = DP.create_variable(model, props)
+    
+    @test var !== nothing
+    @test JuMP.name(var) == "test_var"
+    @test var in JuMP.all_variables(model)
+end
+
 @testset "Variable Creation" begin
     test_VariableProperties_constructor()
     test_make_variable_object()
     test_create_variable()
+    test_create_variable_with_set()
     test_complete_workflow()
     test_variable_copy()
     test_get_variable_info()

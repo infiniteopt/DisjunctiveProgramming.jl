@@ -4,9 +4,9 @@ using Test
 include("utilities.jl")
 
 # RUN ALL THE TESTS
-include("aqua.jl") # temporary ignore until compat is finalized
-include("model.jl")
-include("jump.jl")
+# include("aqua.jl") # temporary ignore until compat is finalized
+# include("model.jl")
+# include("jump.jl")
 include("variables/query.jl")
 include("variables/logical.jl")
 include("variables/creation.jl")

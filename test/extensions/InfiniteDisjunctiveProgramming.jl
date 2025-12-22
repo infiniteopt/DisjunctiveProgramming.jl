@@ -162,6 +162,11 @@ function test_disaggregate_expression_infiniteopt()
     result_expr = DP.disaggregate_expression(model, aff_expr, bvref, method)
     dvref = method.disjunct_variables[x, bvref]
     @test result_expr == bvref + 2*dvref
+    
+    @variable(model, 0 <= y <= 5, Infinite(t))
+    aff_not_disagg = @expression(model, 3*y + 1)
+    result_not_disagg = DP.disaggregate_expression(model, aff_not_disagg, bvref, method)
+    @test haskey(result_not_disagg.terms, y)
 end
 
 function test_variable_properties_infiniteopt()
