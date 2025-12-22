@@ -4,9 +4,9 @@ using Test
 include("utilities.jl")
 
 # RUN ALL THE TESTS
-# include("aqua.jl") # temporary ignore until compat is finalized
-# include("model.jl")
-# include("jump.jl")
+include("aqua.jl")
+include("model.jl")
+include("jump.jl")
 include("variables/query.jl")
 include("variables/logical.jl")
 include("variables/creation.jl")
@@ -24,8 +24,8 @@ include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
 
-if Base.VERSION >= v"1" # extensions require Julia v1.10+
-    import Pkg
-    Pkg.add(url = "https://github.com/infiniteopt/InfiniteOpt.jl", rev = "master")
-    include("extensions/InfiniteDisjunctiveProgramming.jl")
-end
+
+import Pkg
+Pkg.add(url = "https://github.com/infiniteopt/InfiniteOpt.jl", rev = "master")
+include("extensions/InfiniteDisjunctiveProgramming.jl")
+
