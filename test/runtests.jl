@@ -24,7 +24,7 @@ include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
 
-if Base.VERSION >= v"1" # extensions require Julia v1.10+
+if Base.VERSION >= v"1.10" # extensions require Julia v1.10+
     import Pkg
     Pkg.add(url = "https://github.com/infiniteopt/InfiniteOpt.jl", rev = "master")
     include("extensions/InfiniteDisjunctiveProgramming.jl")
