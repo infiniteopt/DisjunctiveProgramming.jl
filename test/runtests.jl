@@ -19,12 +19,12 @@ include("constraints/bigm.jl")
 include("constraints/psplit.jl")
 include("constraints/cuttingplanes.jl")
 include("constraints/hull.jl")
-include("constraints/fallback.jl")
+include("constraints/fallback.jl")    
 include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
 
-if Base.VERSION >= v"1.9" # extensions require Julia v1.9+
+if Base.VERSION >= v"1" # extensions require Julia v1.10+
     import Pkg
     Pkg.add(url = "https://github.com/infiniteopt/InfiniteOpt.jl", rev = "master")
     include("extensions/InfiniteDisjunctiveProgramming.jl")

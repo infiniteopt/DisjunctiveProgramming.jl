@@ -203,6 +203,25 @@ function test_variable_properties_from_expr()
     @test InfiniteOpt.parameter_refs(var1) == (t, s)
 end
 
+function test_variable_properties_from_quad_expr()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @infinite_parameter(model, s ∈ [0, 2])
+    @variable(model, x, Infinite(t))
+    @variable(model, y, Infinite(s))
+    
+    # Test inferring prefs from quadratic expression
+    expr = @expression(model, x^2 + x*y)
+    props = DP.VariableProperties(expr)
+    @test props.name == ""
+    @test props.variable_type isa InfiniteOpt.Infinite
+    @test Set(props.variable_type.parameter_refs) == Set((t, s))
+    var1 = DP.create_variable(model, props)
+    JuMP.set_name(var1, "quad_inferred_var")
+    @test JuMP.name(var1) == "quad_inferred_var"
+    @test Set(InfiniteOpt.parameter_refs(var1)) == Set((t, s))
+end
+
 function test_variable_properties_from_vector()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
@@ -358,6 +377,7 @@ end
         test_requires_disaggregation()
         test_variable_properties_infiniteopt()
         test_variable_properties_from_expr()
+        test_variable_properties_from_quad_expr()
         test_variable_properties_from_vector()
         test_logical_value()
     end

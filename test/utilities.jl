@@ -177,6 +177,21 @@ function test_all_variables()
     @test length(all_vars) == 5
 end
 
+function test_collect_all_vars()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y[1:3])
+    @variable(model, z, Bin)
+    
+    all_vars = DP.collect_all_vars(model)
+    @test x in all_vars
+    @test y[1] in all_vars
+    @test y[2] in all_vars
+    @test y[3] in all_vars
+    @test z in all_vars
+    @test length(all_vars) == 5
+end
+
 function test_get_constant_affine()
     model = GDPModel()
     @variable(model, x)
@@ -225,6 +240,7 @@ end
 
 @testset "Utility Functions" begin
     test_all_variables()
+    test_collect_all_vars()
     test_get_constant_affine()
     test_get_constant_quadratic()
     test_get_constant_number()
