@@ -12,12 +12,12 @@ end
 #                              ALL VARIABLES
 ################################################################################
 """
-    all_variables(model::JuMP.AbstractModel)
+    collect_all_vars(model::JuMP.AbstractModel)
 
 Returns all variable references in the model.
-Extend this for model types that have additional ref types (e.g., parameters).
+Extend this for model types that have additional ref types (e.g., derivatives).
 """
-all_variables(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
+collect_all_vars(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
 
 ################################################################################
 #                              GET CONSTANT
@@ -106,7 +106,7 @@ function copy_gdp_data(
     new_gdp = new_model.ext[:GDP]
 
     # Creating maps from old to new model.
-    var_map = Dict(v => ref_map[v] for v in all_variables(model))
+    var_map = Dict(v => ref_map[v] for v in collect_all_vars(model))
     lv_map = Dict{LogicalVariableRef{M}, LogicalVariableRef{M}}()
     lc_map = Dict{LogicalConstraintRef{M}, LogicalConstraintRef{M}}()
     disj_map = Dict{DisjunctionRef{M}, DisjunctionRef{M}}()

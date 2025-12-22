@@ -15,7 +15,7 @@ function DP.InfiniteGDPModel(args...; kwargs...)
         }(args...; kwargs...)
 end
 
-function DP.all_variables(model::InfiniteOpt.InfiniteModel)
+function DP.collect_all_vars(model::InfiniteOpt.InfiniteModel)
     vars = collect(JuMP.all_variables(model))
     derivs = collect(InfiniteOpt.all_derivatives(model))
     return vcat(vars, derivs)

@@ -76,6 +76,25 @@ end
 #                              CONSTRAINT DISAGGREGATION
 ################################################################################
 # variable
+"""
+    disaggregate_expression(
+        model::JuMP.AbstractModel,
+        expr,
+        bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+        method::_Hull
+    )
+
+Disaggregate an expression for the Hull reformulation. This function is dispatched 
+based on the expression type:
+
+- `vref::JuMP.AbstractVariableRef`: Returns the disaggregated variable if it exists, 
+  otherwise returns the original variable (for binary variables or nested disaggregated variables).
+- `aff::JuMP.GenericAffExpr`: Disaggregates each term in the affine expression.
+- `quad::JuMP.GenericQuadExpr`: Disaggregates both the affine and quadratic parts of the expression.
+
+The disaggregated expression is multiplied by the binary indicator variable `bvref` 
+to enforce the disjunctive constraint.
+"""
 function disaggregate_expression(
     model::JuMP.AbstractModel, 
     vref::JuMP.AbstractVariableRef, 

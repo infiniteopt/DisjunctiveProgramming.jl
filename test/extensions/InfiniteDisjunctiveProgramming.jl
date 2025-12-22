@@ -101,7 +101,7 @@ function test_all_variables_infiniteopt()
     @variable(model, dx, Infinite(t))
     @deriv(dx, t)
     
-    all_vars = DP.all_variables(model)
+    all_vars = DP.collect_all_vars(model)
     @test x in all_vars
     @test y in all_vars
     @test dx in all_vars
