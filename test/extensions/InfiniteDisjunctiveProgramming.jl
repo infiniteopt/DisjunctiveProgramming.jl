@@ -196,7 +196,6 @@ function test_variable_properties_from_expr()
     @variable(model, x, Infinite(t))
     @variable(model, y, Infinite(s))
     
-    # Test inferring prefs from single expression
     expr = @expression(model, 2*x + y)
     props = DP.VariableProperties(expr)
     @test props.name == ""
@@ -215,7 +214,6 @@ function test_variable_properties_from_quad_expr()
     @variable(model, x, Infinite(t))
     @variable(model, y, Infinite(s))
     
-    # Test inferring prefs from quadratic expression
     expr = @expression(model, x^2 + x*y)
     props = DP.VariableProperties(expr)
     @test props.name == ""
@@ -234,7 +232,6 @@ function test_variable_properties_from_vector()
     @variable(model, x, Infinite(t))
     @variable(model, y, Infinite(s))
     
-    # Test inferring prefs from vector of expressions
     exprs = [@expression(model, x + 1), @expression(model, y + 2)]
     props = DP.VariableProperties(exprs)
     var1 = DP.create_variable(model, props)
@@ -271,15 +268,18 @@ function test_add_constraint_single_logical_error()
     @infinite_parameter(model, t ∈ [0, 1])
     @variable(model, y, InfiniteLogical(t))
     
-    @test_throws ErrorException @constraint(model, y in MOI.EqualTo(true))
+    c = JuMP.ScalarConstraint(y, MOI.EqualTo(true))
+    @test_throws ErrorException JuMP.add_constraint(model, c, "")
 end
 
 function test_add_constraint_affine_logical_error()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @variable(model, y[1:2], InfiniteLogical(t))
-    
-    @test_throws ErrorException @constraint(model, y[1] + y[2] == 1)
+
+    aff_expr = 1.0 * y[1] + 1.0 * y[2]
+    c = JuMP.ScalarConstraint(aff_expr, MOI.EqualTo(1.0))
+    @test_throws ErrorException JuMP.add_constraint(model, c, "")
 end
 
 function test_add_constraint_quad_logical_error()
@@ -287,7 +287,9 @@ function test_add_constraint_quad_logical_error()
     @infinite_parameter(model, t ∈ [0, 1])
     @variable(model, y[1:2], InfiniteLogical(t))
     
-    @test_throws ErrorException @constraint(model, y[1] * y[2] == 1)
+    quad_expr = 1.0 * y[1] * y[2]
+    c = JuMP.ScalarConstraint(quad_expr, MOI.EqualTo(1.0))
+    @test_throws ErrorException JuMP.add_constraint(model, c, "")
 end
 
 function test_logical_value()
@@ -384,12 +386,15 @@ end
         test_variable_properties_from_expr()
         test_variable_properties_from_quad_expr()
         test_variable_properties_from_vector()
-        test_logical_value()
     end
 
     @testset "Constraints" begin
         test_add_cardinality_constraint()
         test_add_logical_constraint()
+    end
+
+    @testset "JuMP Overloads" begin
+        test_logical_value()
         test_add_constraint_single_logical_error()
         test_add_constraint_affine_logical_error()
         test_add_constraint_quad_logical_error()
