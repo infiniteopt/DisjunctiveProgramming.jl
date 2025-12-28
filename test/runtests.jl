@@ -23,9 +23,5 @@ include("constraints/fallback.jl")
 include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
-
-
-import Pkg
-Pkg.add(url = "https://github.com/infiniteopt/InfiniteOpt.jl", rev = "master")
 include("extensions/InfiniteDisjunctiveProgramming.jl")
 
