@@ -16,9 +16,9 @@ function DP.InfiniteGDPModel(args...; kwargs...)
 end
 
 function DP.collect_all_vars(model::InfiniteOpt.InfiniteModel)
-    vars = collect(JuMP.all_variables(model))
-    derivs = collect(InfiniteOpt.all_derivatives(model))
-    return vcat(vars, derivs)
+    vars = JuMP.all_variables(model)
+    derivs = InfiniteOpt.all_derivatives(model)
+    return append!(vars, derivs)
 end
 
 ################################################################################
@@ -26,19 +26,13 @@ end
 ################################################################################
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
-function _is_parameter(vref::InfiniteOpt.GeneralVariableRef)
-    dref = InfiniteOpt.dispatch_variable_ref(vref)
-    if typeof(dref) <: Union{
-        InfiniteOpt.DependentParameterRef, 
-        InfiniteOpt.IndependentParameterRef, 
-        InfiniteOpt.ParameterFunctionRef, 
-        InfiniteOpt.FiniteParameterRef
-    }
-        return true
-    else
-        return false
-    end
-end
+_is_parameter(vref::InfiniteOpt.GeneralVariableRef) = 
+    _is_parameter(InfiniteOpt.dispatch_variable_ref(vref))
+_is_parameter(::InfiniteOpt.DependentParameterRef) = true
+_is_parameter(::InfiniteOpt.IndependentParameterRef) = true
+_is_parameter(::InfiniteOpt.ParameterFunctionRef) = true
+_is_parameter(::InfiniteOpt.FiniteParameterRef) = true
+_is_parameter(::Any) = false
 
 function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
     return !_is_parameter(vref)
@@ -54,21 +48,31 @@ function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
 end
 
 # Extract parameter refs from expression and return VariableProperties with Infinite type
-function DP.VariableProperties(expr::JuMP.GenericAffExpr{C, InfiniteOpt.GeneralVariableRef}) where C
+function DP.VariableProperties(
+    expr::JuMP.GenericAffExpr{C, InfiniteOpt.GeneralVariableRef}
+) where C
     prefs = InfiniteOpt.parameter_refs(expr)
     info = DP._free_variable_info()
     var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
     return DP.VariableProperties(info, "", nothing, var_type)
 end
 
-function DP.VariableProperties(expr::JuMP.GenericQuadExpr{C, InfiniteOpt.GeneralVariableRef}) where C
+function DP.VariableProperties(
+    expr::JuMP.GenericQuadExpr{C, InfiniteOpt.GeneralVariableRef}
+) where C
     prefs = InfiniteOpt.parameter_refs(expr)
     info = DP._free_variable_info()
     var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
     return DP.VariableProperties(info, "", nothing, var_type)
 end
 
-function DP.VariableProperties(exprs::Vector{<:Union{InfiniteOpt.GeneralVariableRef, JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef}, JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef}}})
+function DP.VariableProperties(
+    exprs::Vector{<:Union{
+        InfiniteOpt.GeneralVariableRef, 
+        JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef}, 
+        JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef}
+    }}
+)
     all_prefs = Set{InfiniteOpt.GeneralVariableRef}()
     for expr in exprs
         for pref in InfiniteOpt.parameter_refs(expr)

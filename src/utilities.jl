@@ -17,7 +17,7 @@ end
 Returns all variable references in the model.
 Extend this for model types that have additional ref types (e.g., derivatives).
 """
-collect_all_vars(model::JuMP.AbstractModel) = collect(JuMP.all_variables(model))
+collect_all_vars(model::JuMP.AbstractModel) = JuMP.all_variables(model)
 
 ################################################################################
 #                              GET CONSTANT
