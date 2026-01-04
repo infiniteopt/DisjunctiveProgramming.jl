@@ -118,7 +118,9 @@ end
 
 function JuMP.add_constraint(
     model::M,
-    c::JuMP.ScalarConstraint{JuMP.GenericAffExpr{C, DP.LogicalVariableRef{M}}, S},
+    c::JuMP.ScalarConstraint{
+        JuMP.GenericAffExpr{C, DP.LogicalVariableRef{M}}, S
+    },
     name::String = ""
 ) where {M <: InfiniteOpt.InfiniteModel, S, C}
     error("Cannot add, subtract, or multiply with logical variables.")
@@ -126,7 +128,9 @@ end
 
 function JuMP.add_constraint(
     model::M,
-    c::JuMP.ScalarConstraint{JuMP.GenericQuadExpr{C, DP.LogicalVariableRef{M}}, S},
+    c::JuMP.ScalarConstraint{
+        JuMP.GenericQuadExpr{C, DP.LogicalVariableRef{M}}, S
+    },
     name::String = ""
 ) where {M <: InfiniteOpt.InfiniteModel, S, C}
     error("Cannot add, subtract, or multiply with logical variables.")
@@ -135,7 +139,9 @@ end
 ################################################################################
 #                                  METHODS
 ################################################################################
-function DP.get_constant(expr::JuMP.GenericAffExpr{T, InfiniteOpt.GeneralVariableRef}) where {T}
+function DP.get_constant(
+    expr::JuMP.GenericAffExpr{T, InfiniteOpt.GeneralVariableRef}
+) where {T}
     constant = JuMP.constant(expr)
     param_expr = zero(typeof(expr))
     for (var, coeff) in expr.terms
@@ -172,12 +178,12 @@ end
 #                              ERROR MESSAGES
 ################################################################################
 function DP.reformulate_model(::InfiniteOpt.InfiniteModel, ::DP.MBM)
-    error("The `MBM` reformulation method is not supported for `InfiniteModel`. " *
+    error("The `MBM` method is not supported for `InfiniteModel`." *
           "Please use `BigM`, `Hull`, `Indicator`, or `PSplit` instead.")
 end
 
 function DP.reformulate_model(::InfiniteOpt.InfiniteModel, ::DP.cutting_planes)
-    error("The `cutting_planes` reformulation method is not supported for `InfiniteModel`. " *
+    error("The `cutting_planes` method is not supported for `InfiniteModel`." *
           "Please use `BigM`, `Hull`, `Indicator`, or `PSplit` instead.")
 end
 
