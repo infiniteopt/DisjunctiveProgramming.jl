@@ -49,16 +49,11 @@ end
 
 # Extract parameter refs from expression and return VariableProperties with Infinite type
 function DP.VariableProperties(
-    expr::JuMP.GenericAffExpr{C, InfiniteOpt.GeneralVariableRef}
-) where C
-    prefs = InfiniteOpt.parameter_refs(expr)
-    info = DP._free_variable_info()
-    var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
-    return DP.VariableProperties(info, "", nothing, var_type)
-end
-
-function DP.VariableProperties(
-    expr::JuMP.GenericQuadExpr{C, InfiniteOpt.GeneralVariableRef}
+    expr::Union{
+        JuMP.GenericAffExpr{C, InfiniteOpt.GeneralVariableRef},
+        JuMP.GenericQuadExpr{C, InfiniteOpt.GeneralVariableRef},
+        JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
+    }
 ) where C
     prefs = InfiniteOpt.parameter_refs(expr)
     info = DP._free_variable_info()
@@ -68,9 +63,10 @@ end
 
 function DP.VariableProperties(
     exprs::Vector{<:Union{
-        InfiniteOpt.GeneralVariableRef, 
-        JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef}, 
-        JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef}
+        InfiniteOpt.GeneralVariableRef,
+        JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef},
+        JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef},
+        JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
     }}
 )
     all_prefs = Set{InfiniteOpt.GeneralVariableRef}()

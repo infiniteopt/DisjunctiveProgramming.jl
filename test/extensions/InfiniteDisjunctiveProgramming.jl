@@ -225,20 +225,45 @@ function test_variable_properties_from_quad_expr()
     @test Set(InfiniteOpt.parameter_refs(var1)) == Set((t, s))
 end
 
-function test_variable_properties_from_vector()
+function test_variable_properties_from_nonlinear_expr()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s ∈ [0, 2])
     @variable(model, x, Infinite(t))
     @variable(model, y, Infinite(s))
-    
-    exprs = [@expression(model, x + 1), @expression(model, y + 2)]
+
+    expr = @expression(model, exp(x) + sin(y))
+    props = DP.VariableProperties(expr)
+    @test props.name == ""
+    @test props.variable_type isa InfiniteOpt.Infinite
+    @test Set(props.variable_type.parameter_refs) == Set((t, s))
+    var1 = DP.create_variable(model, props)
+    JuMP.set_name(var1, "nl_inferred_var")
+    @test JuMP.name(var1) == "nl_inferred_var"
+    @test Set(InfiniteOpt.parameter_refs(var1)) == Set((t, s))
+end
+
+function test_variable_properties_from_vector()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @infinite_parameter(model, s ∈ [0, 2])
+    @infinite_parameter(model, r ∈ [0, 3])
+    @variable(model, x, Infinite(t))
+    @variable(model, y, Infinite(s))
+    @variable(model, z, Infinite(r))
+
+    exprs = [
+        @expression(model, x + 1),
+        @expression(model, y + 2),
+        @expression(model, exp(z))
+    ]
     props = DP.VariableProperties(exprs)
     var1 = DP.create_variable(model, props)
     JuMP.set_name(var1, "vector_var")
     @test JuMP.name(var1) == "vector_var"
     prefs = InfiniteOpt.parameter_refs(var1)
-    @test length(prefs) == 2
+    @test length(prefs) == 3
+    @test Set(prefs) == Set((t, s, r))
 end
 
 function test_add_cardinality_constraint()
@@ -385,6 +410,7 @@ end
         test_variable_properties_infiniteopt()
         test_variable_properties_from_expr()
         test_variable_properties_from_quad_expr()
+        test_variable_properties_from_nonlinear_expr()
         test_variable_properties_from_vector()
     end
 
