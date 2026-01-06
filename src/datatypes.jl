@@ -488,7 +488,7 @@ struct PSplit{V <: JuMP.AbstractVariableRef} <: AbstractReformulationMethod
     function PSplit(n_parts::Int, model::JuMP.AbstractModel)
         n_parts > 0 || error("Number of partitions must be 
         positive, got $n_parts")
-        variables = collect(JuMP.all_variables(model))
+        variables = collect_all_vars(model)
         n_vars = length(variables)
         
         n_parts = min(n_parts, n_vars)
@@ -620,19 +620,32 @@ mutable struct VariableProperties{L, U, F, S, SET, T}
 end 
 
 function VariableProperties(vref::JuMP.GenericVariableRef{T}) where T
-    info = JuMP.VariableInfo(
-        JuMP.has_lower_bound(vref),
-        JuMP.has_lower_bound(vref) ? JuMP.lower_bound(vref) : zero(T),
-        JuMP.has_upper_bound(vref),
-        JuMP.has_upper_bound(vref) ? JuMP.upper_bound(vref) : zero(T),
-        JuMP.is_fixed(vref),
-        JuMP.is_fixed(vref) ? JuMP.fix_value(vref) : zero(T),
-        !isnothing(JuMP.start_value(vref)),
-        JuMP.start_value(vref),
-        JuMP.is_binary(vref),
-        JuMP.is_integer(vref)
-    )
+    info = get_variable_info(vref)
     name = JuMP.name(vref)
     set = JuMP.is_variable_in_set(vref) ? JuMP.moi_set(JuMP.constraint_object(JuMP.VariableInSetRef(vref))) : nothing
     return VariableProperties(info, name, set, nothing)
+end
+
+function VariableProperties(vref::JuMP.AbstractVariableRef)
+    info = get_variable_info(vref)
+    name = JuMP.name(vref)
+    return VariableProperties(info, name, nothing, nothing)
+end
+
+"""
+    VariableProperties(expr)::VariableProperties
+
+Creates a `VariableProperties` object with blank variable info (no bounds, not fixed, 
+not binary/integer) from an expression. The `expr` argument is provided for 
+extensions to infer additional properties (e.g., parameter dependencies in InfiniteOpt).
+
+## Arguments
+- `expr`: Expression for extensions to extract metadata from
+
+## Returns
+A `VariableProperties` object with blank info.
+"""
+function VariableProperties(expr)
+    info = _free_variable_info()
+    return VariableProperties(info, "", nothing, nothing)
 end

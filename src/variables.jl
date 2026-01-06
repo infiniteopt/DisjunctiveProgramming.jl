@@ -115,12 +115,13 @@ function JuMP.add_variable(
     lvref = LogicalVariableRef(model, idx)
     _set_ready_to_optimize(model, false)
     # add the associated binary variables
-    if isnothing(_get_variable(v).logical_complement)
+    extracted_var = _get_variable(v)
+    if isnothing(extracted_var.logical_complement)
         bvref = _make_binary_variable(model, v, name)
         _add_logical_info(bvref, v)
         jump_expr = bvref
     else
-        jump_expr = 1 - binary_variable(v.logical_complement)
+        jump_expr = 1 - binary_variable(extracted_var.logical_complement)
     end
     _indicator_to_binary(model)[lvref] = jump_expr
     return lvref
@@ -516,4 +517,70 @@ function variable_copy(
     )
     props = VariableProperties(vref)
     return create_variable(model, props)
+end
+
+"""
+    get_variable_info(vref::JuMP.AbstractVariableRef; kwargs...)::JuMP.VariableInfo
+
+Extracts variable information from a JuMP variable reference and returns a `JuMP.VariableInfo` 
+object. This function retrieves bounds, fixed values, start values, and binary/integer status
+from the variable reference.
+
+## Keyword Arguments
+- `has_lb::Bool`: Whether the variable has a lower bound (default: queries `vref`)
+- `has_ub::Bool`: Whether the variable has an upper bound (default: queries `vref`)
+- `has_fix::Bool`: Whether the variable is fixed (default: queries `vref`)
+- `has_start::Bool`: Whether the variable has a start value (default: queries `vref`)
+- `has_binary::Bool`: Whether the variable is binary (default: queries `vref`)
+- `has_integer::Bool`: Whether the variable is integer (default: queries `vref`)
+- `lower_bound`: The lower bound value (default: queries `vref` if has_lb, else 0)
+- `upper_bound`: The upper bound value (default: queries `vref` if has_ub, else 0)
+- `fixed_value`: The fixed value (default: queries `vref` if has_fix, else 0)
+- `start_value`: The start value (default: queries `vref` if has_start, else 0)
+- `binary::Bool`: Binary status (default: queries `vref`)
+- `integer::Bool`: Integer status (default: queries `vref`)
+
+## Returns
+A `JuMP.VariableInfo` object containing all the variable's attributes.
+"""
+function get_variable_info(vref::JuMP.AbstractVariableRef; 
+    has_lb::Bool = JuMP.has_lower_bound(vref), 
+    has_ub::Bool = JuMP.has_upper_bound(vref), 
+    has_fix::Bool = JuMP.is_fixed(vref), 
+    has_start::Bool = JuMP.has_start_value(vref), 
+    has_binary::Bool = JuMP.is_binary(vref), 
+    has_integer::Bool = JuMP.is_integer(vref), 
+    lower_bound::Union{Number, Function} = has_lb ? JuMP.lower_bound(vref) : 0, 
+    upper_bound::Union{Number, Function} = has_ub ? JuMP.upper_bound(vref) : 0, 
+    fixed_value::Union{Number, Function} = has_fix ? JuMP.fix_value(vref) : 0, 
+    start_value::Union{Number, Function} = has_start ? JuMP.start_value(vref) : 0, 
+    binary::Bool = has_binary ? JuMP.is_binary(vref) : false, 
+    integer::Bool = has_integer ? JuMP.is_integer(vref) : false)
+    info = JuMP.VariableInfo(
+        has_lb,
+        lower_bound,
+        has_ub,
+        upper_bound,
+        has_fix,
+        fixed_value,
+        has_start,
+        start_value,
+        binary,
+        integer
+    )
+    return info
+end
+
+"""
+    _free_variable_info()::JuMP.VariableInfo
+
+Creates a blank `JuMP.VariableInfo` object with no bounds, no fixed value, 
+no start value, and neither binary nor integer constraints.
+
+## Returns
+A `JuMP.VariableInfo` object with all flags set to `false` and all numeric 
+values set to `NaN`.
+"""
+function _free_variable_info()
+    return JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false, NaN, false, false)
 end

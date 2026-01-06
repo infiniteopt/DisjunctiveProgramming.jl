@@ -158,3 +158,91 @@ function JuMP.add_constraint(
    return DP._add_logical_constraint(model, c, name)
 end
 DP.requires_disaggregation(::MyVarRef) = true
+
+################################################################################
+#                              UTILITY FUNCTION TESTS
+################################################################################
+function test_all_variables()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y[1:3])
+    @variable(model, z, Bin)
+    
+    all_vars = DP.all_variables(model)
+    @test x in all_vars
+    @test y[1] in all_vars
+    @test y[2] in all_vars
+    @test y[3] in all_vars
+    @test z in all_vars
+    @test length(all_vars) == 5
+end
+
+function test_collect_all_vars()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y[1:3])
+    @variable(model, z, Bin)
+    
+    all_vars = DP.collect_all_vars(model)
+    @test x in all_vars
+    @test y[1] in all_vars
+    @test y[2] in all_vars
+    @test y[3] in all_vars
+    @test z in all_vars
+    @test length(all_vars) == 5
+end
+
+function test_get_constant_affine()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y)
+    
+    # Affine expression with constant
+    expr1 = @expression(model, 2*x + 3*y + 5.0)
+    @test DP.get_constant(expr1) == 5.0
+    
+    # Affine expression without constant
+    expr2 = @expression(model, 2*x + 3*y)
+    @test DP.get_constant(expr2) == 0.0
+    
+    # Only constant
+    expr3 = @expression(model, 0*x + 7.0)
+    @test DP.get_constant(expr3) == 7.0
+end
+
+function test_get_constant_quadratic()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, y)
+    
+    # Quadratic expression with constant
+    expr1 = @expression(model, x^2 + 2*x*y + 3.0)
+    @test DP.get_constant(expr1) == 3.0
+    
+    # Quadratic expression without constant
+    expr2 = @expression(model, x^2 + y^2)
+    @test DP.get_constant(expr2) == 0.0
+end
+
+function test_get_constant_number()
+    @test DP.get_constant(5.0) == 5.0
+    @test DP.get_constant(0) == 0
+    @test DP.get_constant(-3.14) == -3.14
+end
+
+function test_get_constant_variable()
+    model = GDPModel()
+    @variable(model, x)
+    
+    # Variable reference should return zero
+    @test DP.get_constant(x) == 0.0
+end
+
+@testset "Utility Functions" begin
+    test_all_variables()
+    test_collect_all_vars()
+    test_get_constant_affine()
+    test_get_constant_quadratic()
+    test_get_constant_number()
+    test_get_constant_variable()
+end

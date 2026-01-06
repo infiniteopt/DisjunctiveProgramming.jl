@@ -21,6 +21,7 @@ function _disaggregate_variables(
         _disaggregate_variable(model, lvref, vref, method) #create disaggregated var for that disjunct
     end
 end
+
 function _disaggregate_variable(
     model::M, 
     lvref::LogicalVariableRef, 
@@ -29,20 +30,11 @@ function _disaggregate_variable(
     ) where {M <: JuMP.AbstractModel}
     #create disaggregated vref
     lb, ub = variable_bound_info(vref)
-    T = JuMP.value_type(M)
-    info = JuMP.VariableInfo(
-        true,      # has_lb = true
-        lb,        # lower_bound = lb
-        true,      # has_ub = true  
-        ub,        # upper_bound = ub
-        false,     # has_fix = false
-        zero(T),   # fixed_value = 0
-        false,     # has_start = false
-        zero(T),   # start = 0
-        false,     # binary = false
-        false      # integer = false
-    )
-    properties = VariableProperties(info, "$(vref)_$(lvref)", nothing, nothing)
+    info = get_variable_info(vref; has_lb = true, has_ub = true, 
+                             lower_bound = lb, upper_bound = ub)
+    old_props = VariableProperties(vref)
+    properties = VariableProperties(info, "$(vref)_$(lvref)", 
+                                    old_props.set, old_props.variable_type)
     dvref = create_variable(model, properties)
     push!(_reformulation_variables(model), dvref)
     #get binary indicator variable
@@ -60,6 +52,7 @@ function _disaggregate_variable(
     return dvref
 end
 
+#TODO: Throw error for fix, bin, integer
 ################################################################################
 #                              VARIABLE AGGREGATION
 ################################################################################
@@ -69,7 +62,11 @@ function _aggregate_variable(
     vref::JuMP.AbstractVariableRef, 
     method::_Hull
     )
+
     JuMP.is_binary(vref) && return #skip binary variables
+    if isempty(method.disjunction_variables[vref])
+        return  # Variable wasn't disaggregated, skip aggregation
+    end
     con_expr = JuMP.@expression(model, -vref + sum(method.disjunction_variables[vref]))
     push!(ref_cons, JuMP.build_constraint(error, con_expr, _MOI.EqualTo(0)))
     return 
@@ -79,7 +76,26 @@ end
 #                              CONSTRAINT DISAGGREGATION
 ################################################################################
 # variable
-function _disaggregate_expression(
+"""
+    disaggregate_expression(
+        model::JuMP.AbstractModel,
+        expr,
+        bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+        method::_Hull
+    )
+
+Disaggregate an expression for the Hull reformulation. This function is dispatched 
+based on the expression type:
+
+- `vref::JuMP.AbstractVariableRef`: Returns the disaggregated variable if it exists, 
+  otherwise returns the original variable (for binary variables or nested disaggregated variables).
+- `aff::JuMP.GenericAffExpr`: Disaggregates each term in the affine expression.
+- `quad::JuMP.GenericQuadExpr`: Disaggregates both the affine and quadratic parts of the expression.
+
+The disaggregated expression is multiplied by the binary indicator variable `bvref` 
+to enforce the disjunctive constraint.
+"""
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     vref::JuMP.AbstractVariableRef, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
@@ -92,7 +108,7 @@ function _disaggregate_expression(
     end
 end
 # affine expression
-function _disaggregate_expression(
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     aff::JuMP.GenericAffExpr, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
@@ -109,17 +125,18 @@ function _disaggregate_expression(
     end
     return new_expr
 end
+
 # quadratic expression
 # TODO review what happens when there are bilinear terms with binary variables involved since these are not being disaggregated 
 #   (e.g., complementarity constraints; though likely irrelevant)...
-function _disaggregate_expression(
+function disaggregate_expression(
     model::JuMP.AbstractModel, 
     quad::JuMP.GenericQuadExpr, 
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
     method::_Hull
     )
     #get affine part
-    new_expr = _disaggregate_expression(model, quad.aff, bvref, method)
+    new_expr = disaggregate_expression(model, quad.aff, bvref, method)
     #get quadratic part
     ϵ = method.value
     for (pair, coeff) in quad.terms
@@ -246,7 +263,7 @@ function reformulate_disjunct_constraint(
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}}
-    new_func = _disaggregate_expression(model, con.func, bvref, method)
+    new_func = disaggregate_expression(model, con.func, bvref, method)
     set_value = _set_value(con.set)
     new_func -= set_value*bvref
     reform_con = JuMP.build_constraint(error, new_func, S(0))
@@ -259,7 +276,7 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros}, R}
     new_func = JuMP.@expression(model, [i=1:con.set.dimension],
-        _disaggregate_expression(model, con.func[i], bvref, method)
+        disaggregate_expression(model, con.func[i], bvref, method)
     )
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
@@ -307,7 +324,7 @@ function reformulate_disjunct_constraint(
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: _MOI.Interval}
-    new_func = _disaggregate_expression(model, con.func, bvref, method)
+    new_func = disaggregate_expression(model, con.func, bvref, method)
     new_func_gt = JuMP.@expression(model, new_func - con.set.lower*bvref)
     new_func_lt = JuMP.@expression(model, new_func - con.set.upper*bvref)
     reform_con_gt = JuMP.build_constraint(error, new_func_gt, _MOI.GreaterThan(0))

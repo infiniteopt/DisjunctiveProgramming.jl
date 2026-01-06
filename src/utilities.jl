@@ -8,6 +8,36 @@ function _copy_model(
     return M()
 end
 
+################################################################################
+#                              ALL VARIABLES
+################################################################################
+"""
+    collect_all_vars(model::JuMP.AbstractModel)
+
+Returns all variable references in the model.
+Extend this for model types that have additional ref types (e.g., derivatives).
+"""
+collect_all_vars(model::JuMP.AbstractModel) = JuMP.all_variables(model)
+
+################################################################################
+#                              GET CONSTANT
+################################################################################
+"""
+    get_constant(expr)
+
+Returns the constant portion of an expression. Extendable for model types where
+additional terms should be treated as constants.
+"""
+get_constant(expr::JuMP.GenericAffExpr) = JuMP.constant(expr)
+get_constant(expr::JuMP.GenericQuadExpr) = JuMP.constant(expr)
+get_constant(expr::Number) = expr
+function get_constant(expr::JuMP.AbstractVariableRef)
+    return zero(JuMP.value_type(typeof(JuMP.owner_model(expr))))
+end
+
+################################################################################
+#                              MODEL COPYING
+################################################################################
 """
     JuMP.copy_extension_data(
         data::GDPData,
@@ -76,7 +106,7 @@ function copy_gdp_data(
     new_gdp = new_model.ext[:GDP]
 
     # Creating maps from old to new model.
-    var_map = Dict(v => ref_map[v] for v in all_variables(model))
+    var_map = Dict(v => ref_map[v] for v in collect_all_vars(model))
     lv_map = Dict{LogicalVariableRef{M}, LogicalVariableRef{M}}()
     lc_map = Dict{LogicalConstraintRef{M}, LogicalConstraintRef{M}}()
     disj_map = Dict{DisjunctionRef{M}, DisjunctionRef{M}}()
@@ -150,7 +180,9 @@ function copy_gdp_data(
     # Copying indicator to constraints
     for (lv_ref, con_refs) in old_gdp.indicator_to_constraints
         new_lvar_ref = lv_map[lv_ref]
-        new_con_refs = Vector{Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}}()
+        new_con_refs = Vector{
+            Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}
+        }()
         for con_ref in con_refs
             new_con_ref = _remap_indicator_to_constraint(con_ref, 
             disj_con_map, disj_map

@@ -12,8 +12,8 @@ function reformulate_model(
     rBM, rBM_ref_map, _ = copy_gdp_model(model)
     reformulate_model(rBM, BigM(method.M_value))
     reformulate_model(SEP, Hull())
-    main_to_SEP_map = Dict(v => sep_ref_map[v] for v in all_variables(model))
-    main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in all_variables(model))
+    main_to_SEP_map = Dict(v => sep_ref_map[v] for v in collect_all_vars(model))
+    main_to_rBM_map = Dict(v => rBM_ref_map[v] for v in collect_all_vars(model))
     JuMP.set_optimizer(SEP, method.optimizer)
     JuMP.set_optimizer(rBM, method.optimizer)
     JuMP.set_silent(rBM)
@@ -55,7 +55,7 @@ function _solve_rBM(
     ) where {M <: JuMP.AbstractModel}
     T = JuMP.value_type(M)
     optimize!(rBM, ignore_optimize_hook = true)
-    rBM_vars = JuMP.all_variables(rBM)
+    rBM_vars = collect_all_vars(rBM)
 
     #Solution to be passed to SEP model.
     sol = Dict{JuMP.AbstractVariableRef,T}(var => zero(T) for var in rBM_vars)
@@ -73,7 +73,7 @@ function _solve_SEP(
     rBM_to_SEP_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef} 
     ) where {M <: JuMP.AbstractModel, T <: Number}
 
-    SEP_vars = [rBM_to_SEP_map[rBM_var] for rBM_var in JuMP.all_variables(rBM)]
+    SEP_vars = [rBM_to_SEP_map[rBM_var] for rBM_var in collect_all_vars(rBM)]
 
     #Modified objective function for SEP.
     obj_expr = sum(
@@ -98,7 +98,7 @@ function _cutting_planes(
     rBM_sol::Dict{<:JuMP.AbstractVariableRef,T},
     SEP_sol::Dict{<:JuMP.AbstractVariableRef,T},
     ) where {M <: JuMP.AbstractModel, T <: Number}
-    main_vars = JuMP.all_variables(model)
+    main_vars = collect_all_vars(model)
 
     #Cutting plane generation
     ξ_sep = Dict{JuMP.AbstractVariableRef,T}(var =>zero(T) for var in main_vars)

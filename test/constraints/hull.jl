@@ -81,7 +81,7 @@ function test_disaggregate_expression_var()
     method = DP._Hull(Hull(1e-3), vrefs)
     @test DP._disaggregate_variables(model, z, vrefs, method) isa Nothing
     
-    refexpr = DP._disaggregate_expression(model, x, bvrefs[z], method)
+    refexpr = DP.disaggregate_expression(model, x, bvrefs[z], method)
     x_z = variable_by_name(model, "x_z")
     @test refexpr == x_z
 end
@@ -97,7 +97,7 @@ function test_disaggregate_expression_var_binary()
     @test DP._disaggregate_variables(model, z, vrefs, method) isa Nothing
     @test isnothing(variable_by_name(model, "x_z"))
     
-    refexpr = DP._disaggregate_expression(model, x, bvrefs[z], method)
+    refexpr = DP.disaggregate_expression(model, x, bvrefs[z], method)
     @test refexpr == x
 end
 
@@ -112,7 +112,7 @@ function test_disaggregate_expression_affine()
     method = DP._Hull(Hull(1e-3), vrefs)
     @test DP._disaggregate_variables(model, z, vrefs, method) isa Nothing
     
-    refexpr = DP._disaggregate_expression(model, 2x + 1, bvrefs[z], method)
+    refexpr = DP.disaggregate_expression(model, 2x + 1, bvrefs[z], method)
     x_z = variable_by_name(model, "x_z")
     zbin = variable_by_name(model, "z")
     @test refexpr == 2x_z + 1zbin
@@ -130,7 +130,7 @@ function test_disaggregate_expression_affine_mip()
     method = DP._Hull(Hull(1e-3), vrefs)
     @test DP._disaggregate_variables(model, z, vrefs, method) isa Nothing
     
-    refexpr = DP._disaggregate_expression(model, 2x + y + 1, bvrefs[z], method)
+    refexpr = DP.disaggregate_expression(model, 2x + y + 1, bvrefs[z], method)
     x_z = variable_by_name(model, "x_z")
     zbin = variable_by_name(model, "z")
     @test refexpr == 2x_z + y + 1zbin
@@ -147,7 +147,7 @@ function test_disaggregate_expression_quadratic()
     method = DP._Hull(Hull(1e-3), vrefs)
     @test DP._disaggregate_variables(model, z, vrefs, method) isa Nothing
     
-    refexpr = DP._disaggregate_expression(model, 2x^2 + 1, bvrefs[z], method)
+    refexpr = DP.disaggregate_expression(model, 2x^2 + 1, bvrefs[z], method)
     x_z = variable_by_name(model, "x_z")
     zbin = variable_by_name(model, "z")
     ϵ = method.value
