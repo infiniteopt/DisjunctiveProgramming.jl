@@ -4,7 +4,7 @@ A Generalized Disjunctive Programming (GDP) extension to JuMP.
 
 ![logo](logo.png)
 
-[![codecov](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl/graph/badge.svg?token=3FRPGMWF0J)](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl)
+[![codecov](https://codecov.io/github/infiniteopt/DisjunctiveProgramming.jl/graph/badge.svg?token=z2CQwBiWzU)](https://codecov.io/github/infiniteopt/DisjunctiveProgramming.jl)
 [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/)
 [![Docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/dev/)
 
@@ -192,7 +192,36 @@ The following reformulation methods are currently supported:
     - `final_reform_method`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
     - `M_value`: Big-M value to use in the relaxed Big-M reformulation during iterations. Default: `1e9`.
 
+## Infinite-Dimensional GDP
+To model disjunctions, logical variables, and logical constraints with infinite-dimensional optimization problems (e.g., dynamic and stochastic optimization), DisjunctiveProgramming is also compatible with [InfiniteOpt.jl](https://github.com/infiniteopt/InfiniteOpt.jl). For this, the syntax is largely the same, users simply need to import `InfiniteOpt` and use `InfiniteGDPModel`. They also can use `InfiniteLogical` to declare infinite logical variables as shown below:
+```julia
+using DisjunctiveProgramming, InfiniteOpt, HiGHS
 
+# Create the model
+model = InfiniteGDPModel(HiGHS.Optimizer)
+
+# Create the infinite variables
+I = 1:4
+@infinite_parameter(model, t ∈ [0, 1], num_supports = 100)
+@variable(model, 0 <= g[I] <= 10, Infinite(t))
+
+# Add the disjunctions and their indicator variables
+@variable(model, G[I, 1:2], InfiniteLogical(t))
+@constraint(model, [i ∈ I, j ∈ 1:2], 0 <= g[i], Disjunct(G[i, 1]))
+@constraint(model, [i ∈ I, j ∈ 1:2], g[i] <= 0, Disjunct(G[i, 2]))
+@disjunction(model, [i ∈ I], G[i, :])
+
+# Add the logical propositions
+@variable(model, W, InfiniteLogical(t))
+@constraint(model, G[1, 1] ∨ G[2, 1] ∧ G[3, 1] == W := true)
+@constraint(model, 𝔼(binary_variable(W), t) >= 0.95) # incorporate binary variable of logical variable in a nonlogical constraint
+
+# Reformulate and solve 
+optimize!(model, gdp_method = Hull())
+
+# check the results
+value(W)
+```
 
 ## Release Notes
 
