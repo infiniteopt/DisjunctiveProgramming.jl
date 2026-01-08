@@ -15,39 +15,42 @@ function reformulate_disjunction(
     end
     return ref_cons
 end
-#Reformualates a disjunct the disjunct of interest 
-#represented by lvref and the other indicators in conlvref
+# Reformulates a disjunct represented by lvref using per-constraint M values.
+# Per Trespalacios & Grossmann (2015) Eq. (9), each constraint e in term i
+# gets its own set of M_{ie,i'} values for each other term i'.
 function _reformulate_disjunct(
-    model::JuMP.AbstractModel, 
-    ref_cons::Vector{JuMP.AbstractConstraint}, 
+    model::JuMP.AbstractModel,
+    ref_cons::Vector{JuMP.AbstractConstraint},
     lvref::LogicalVariableRef,
     method::_MBM
-) 
-    
-    empty!(method.M)
+)
     !haskey(_indicator_to_constraints(model), lvref) && return
     bconref = Dict(d => binary_variable(d) for d in method.conlvref)
-    
+
     constraints = _indicator_to_constraints(model)[lvref]
     filtered_constraints = [c for c in constraints if c isa DisjunctConstraintRef]
 
-    for d in method.conlvref
-        d_constraints = _indicator_to_constraints(model)[d]
-        disjunct_constraints = [c for c in d_constraints if c isa DisjunctConstraintRef]
-        if !isempty(disjunct_constraints)
-            method.M[d] = maximum(
-                _maximize_M(
-                    model, 
-                    JuMP.constraint_object(cref), 
+    # For each constraint, compute its own set of M values
+    for cref in filtered_constraints
+        empty!(method.M)  # Clear M for each constraint
+
+        for d in method.conlvref
+            d_constraints = _indicator_to_constraints(model)[d]
+            disjunct_constraints = [
+                c for c in d_constraints if c isa DisjunctConstraintRef
+            ]
+            if !isempty(disjunct_constraints)
+                method.M[d] = _maximize_M(
+                    model,
+                    JuMP.constraint_object(cref),
                     disjunct_constraints,
                     method
-                ) for cref in filtered_constraints
-            )  
+                )
+            end
         end
-    end
-    for cref in filtered_constraints  
-        con = JuMP.constraint_object(cref)  
-        append!(ref_cons, reformulate_disjunct_constraint(model, con, 
+
+        con = JuMP.constraint_object(cref)
+        append!(ref_cons, reformulate_disjunct_constraint(model, con,
             bconref, method))
     end
     return ref_cons

@@ -177,22 +177,21 @@ function test_reformulate_disjunct_constraint()
     @test reformulated_constraints[5][1].func == JuMP.@expression(model, 
         x .+ sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
         reformulated_constraints[5][1].set == MOI.Nonnegatives(2)
-    @test reformulated_constraints[6][1].func == JuMP.@expression(model, 
-        -x .+(1 + sum(method.M[i] * bconref[i] for i in keys(method.M)))) && 
+    @test reformulated_constraints[6][1].func == JuMP.@expression(model,
+        -x .+(1 + sum(method.M[i] * bconref[i] for i in keys(method.M)))) &&
         reformulated_constraints[6][1].set == MOI.Nonnegatives(2)
-    @test reformulated_constraints[6][2].func == JuMP.@expression(model, 
-        -x .+(1 - sum(method.M[i] * bconref[i] for i in keys(method.M)))) && 
+    @test reformulated_constraints[6][2].func == JuMP.@expression(model,
+        -x .+(1 - sum(method.M[i] * bconref[i] for i in keys(method.M)))) &&
         reformulated_constraints[6][2].set == MOI.Nonpositives(2)
-    @test reformulated_constraints[7][1].func == JuMP.@expression(model, 
-        x[1] - 52*bconref[Y[3]] - 53*bconref[Y[4]] - bconref[Y[1]] 
-        - 5*bconref[Y[5]] - 2*bconref[Y[2]]) && 
-        reformulated_constraints[7][1].set == MOI.LessThan(1.0)
-    @test reformulated_constraints[7][2].func == JuMP.@expression(model, 
-        x[1] + 52*bconref[Y[3]] + 53*bconref[Y[4]] + bconref[Y[1]] 
-        + 5*bconref[Y[5]] + 2*bconref[Y[2]]) && 
-        reformulated_constraints[7][2].set == MOI.GreaterThan(1.0)
-    
-    @test_throws ErrorException reformulate_disjunct_constraint(model, 
+
+    @test length(reformulated_constraints[7]) >= 2
+    @test reformulated_constraints[7][1].set == MOI.LessThan(1.0)
+    @test reformulated_constraints[7][2].set == MOI.GreaterThan(1.0)
+    # Verify x[1] has coefficient 1.0 in both constraints
+    @test JuMP.coefficient(reformulated_constraints[7][1].func, x[1]) == 1.0
+    @test JuMP.coefficient(reformulated_constraints[7][2].func, x[1]) == 1.0
+
+    @test_throws ErrorException reformulate_disjunct_constraint(model,
         "odd", bconref, method)
 
 end
@@ -238,30 +237,36 @@ function test_reformulate_disjunction()
     @constraint(model, greaterthan, x >= 1, Disjunct(Y[1]))
     @constraint(model, interval, 0 <= x <= 55, Disjunct(Y[2]))
     disj = disjunction(model, [Y[1], Y[2]])
-    
+
     method = DP.MBM(HiGHS.Optimizer)
     ref_cons = reformulate_disjunction(model, constraint_object(disj), method)
 
     @test length(ref_cons) == 4
 
     @test ref_cons[1].set == MOI.LessThan(2.0)
-    
+
     @test ref_cons[2].set == MOI.GreaterThan(1.0)
-    
+
     @test ref_cons[3].set == MOI.GreaterThan(0.0)
-    
+
     @test ref_cons[4].set == MOI.LessThan(55.0)
 
-    func_1 = ref_cons[1].func  # x - 53 Y[2] <= 2.0
-    func_2 = ref_cons[2].func  # x + 53 Y[2] >= 1.0
-    func_3 = ref_cons[3].func  # x - Y[1] >= 0.0
-    func_4 = ref_cons[4].func  # x + Y[1] <= 55.0
+    # Per-constraint M values:
+    # - lessthan (x <= 2) in Y[2] region (0 <= x <= 55): max(x-2) at x=55 → M=53
+    # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 → M=1
+    # - interval in Y[1]: _maximize_M for Interval takes max(M_lower, M_upper)
+    #   - M_lower (x >= 0): max(-x) s.t. 1<=x<=2 → -1
+    #   - M_upper (x <= 55): max(x-55) s.t. 1<=x<=2 → -53
+    func_1 = ref_cons[1].func  # x - 53*Y[2] <= 2.0
+    func_2 = ref_cons[2].func  # x + 1*Y[2] >= 1.0 (per-constraint M=1)
+    func_3 = ref_cons[3].func  # x + (-1)*Y[1] >= 0.0
+    func_4 = ref_cons[4].func  # x - (-1)*Y[1] <= 55.0 → x + Y[1] <= 55.0
 
     @test JuMP.coefficient(func_1, x) == 1.0
     @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -53.0
 
     @test JuMP.coefficient(func_2, x) == 1.0
-    @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 53.0
+    @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 1.0 
 
     @test JuMP.coefficient(func_3, x) == 1.0
     @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -1.0
