@@ -15,8 +15,8 @@ function reformulate_disjunction(
     end
     return ref_cons
 end
+
 # Reformulates a disjunct represented by lvref using per-constraint M values.
-# Per Trespalacios & Grossmann (2015) Eq. (9), each constraint e in term i
 # gets its own set of M_{ie,i'} values for each other term i'.
 function _reformulate_disjunct(
     model::JuMP.AbstractModel,
@@ -32,7 +32,7 @@ function _reformulate_disjunct(
 
     # For each constraint, compute its own set of M values
     for cref in filtered_constraints
-        empty!(method.M)  # Clear M for each constraint
+        empty!(method.M) 
 
         for d in method.conlvref
             d_constraints = _indicator_to_constraints(model)[d]
