@@ -91,49 +91,78 @@ end
 
 function test_maximize_M()
     model = GDPModel()
-    @variable(model, 0 <= x[1:2] <= 50)
+    # Different bounds for x[1] and x[2] to demonstrate per-row M values
+    @variable(model, x[1:2])
+    set_lower_bound(x[1], 0); set_upper_bound(x[1], 10)
+    set_lower_bound(x[2], 0); set_upper_bound(x[2], 5)
     @variable(model, Y[1:6], Logical)
     @constraint(model, lessthan, x[1] <= 1, Disjunct(Y[1]))
     @constraint(model, greaterthan, x[1] >= 1, Disjunct(Y[1]))
     @constraint(model, interval, 0 <= x[1] <= 55, Disjunct(Y[2]))
     @constraint(model, equalto, x[1] == 1, Disjunct(Y[3]))
-    @constraint(model, nonpositives, -x in MOI.Nonpositives(2), 
+    # Vector constraints: x >= 0 (both rows)
+    @constraint(model, nonpositives, -x in MOI.Nonpositives(2),
         Disjunct(Y[4]))
-    @constraint(model, nonnegatives, x in MOI.Nonnegatives(2), 
+    @constraint(model, nonnegatives, x in MOI.Nonnegatives(2),
         Disjunct(Y[5]))
+    # Vector equality: x == 1 (both rows)
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[6]))
     mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    @test DP._maximize_M(model, constraint_object(interval), 
+
+    # Interval returns [M_lower, M_upper]
+    # M_lower = max(0 - x[1]) s.t. 0<=x[1]<=10 = 0 at x[1]=0
+    # M_upper = max(x[1] - 55) s.t. 0<=x[1]<=10 = -45 at x[1]=10
+    @test DP._maximize_M(model, constraint_object(interval),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
-        mbm) == 0.0
-    @test DP._maximize_M(model, constraint_object(lessthan), 
+            DP._indicator_to_constraints(model)[Y[2]]),
+        mbm) == [0.0, -45.0]
+
+    # Scalar LessThan/GreaterThan still return scalars
+    # lessthan: x[1] <= 1 vs interval 0 <= x[1] <= 55
+    # max(x[1] - 1) s.t. 0<=x[1]<=10 = 9 at x[1]=10
+    @test DP._maximize_M(model, constraint_object(lessthan),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
-        mbm) == 49
-    @test DP._maximize_M(model, constraint_object(greaterthan), 
+            DP._indicator_to_constraints(model)[Y[2]]),
+        mbm) == 9.0
+
+    # greaterthan: x[1] >= 1 vs interval 0 <= x[1] <= 55
+    # max(1 - x[1]) s.t. 0<=x[1]<=10 = 1 at x[1]=0
+    @test DP._maximize_M(model, constraint_object(greaterthan),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
+            DP._indicator_to_constraints(model)[Y[2]]),
         mbm) == 1.0
-    @test DP._maximize_M(model, constraint_object(equalto), 
+
+    # EqualTo returns [M_lower, M_upper]
+    @test DP._maximize_M(model, constraint_object(equalto),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[3]]), 
-        mbm) == 0
-    @test DP._maximize_M(model, constraint_object(nonpositives), 
+            DP._indicator_to_constraints(model)[Y[3]]),
+        mbm) == [0.0, 0.0]
+
+    # Vector constraints: per-row M values
+    # nonpositives: x >= 0 against Y[2] (interval only on x[1])
+    # Row 1: max(0 - x[1]) s.t. 0<=x[1]<=10 = 0
+    # Row 2: max(0 - x[2]) s.t. 0<=x[2]<=5 = 0
+    @test DP._maximize_M(model, constraint_object(nonpositives),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
-        mbm) == 0
-    @test DP._maximize_M(model, constraint_object(nonnegatives), 
+            DP._indicator_to_constraints(model)[Y[2]]),
+        mbm) == [0.0, 0.0]
+
+    @test DP._maximize_M(model, constraint_object(nonnegatives),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
-        mbm) == 0
-    @test DP._maximize_M(model, constraint_object(zeros), 
+            DP._indicator_to_constraints(model)[Y[2]]),
+        mbm) == [0.0, 0.0]
+
+    # zeros: x == 1 against Y[2] - per-row M values differ!
+    # Row 1: max(|x[1] - 1|) s.t. 0<=x[1]<=10 = max(9, 1) = 9
+    # Row 2: max(|x[2] - 1|) s.t. 0<=x[2]<=5 = max(4, 1) = 4
+    @test DP._maximize_M(model, constraint_object(zeros),
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
-        mbm) == 49
-    @test_throws ErrorException DP._maximize_M(model, "odd", 
+            DP._indicator_to_constraints(model)[Y[2]]),
+        mbm) == [9.0, 4.0]
+
+    @test_throws ErrorException DP._maximize_M(model, "odd",
         Vector{DisjunctConstraintRef}(
-            DP._indicator_to_constraints(model)[Y[2]]), 
+            DP._indicator_to_constraints(model)[Y[2]]),
         mbm)
 end
 
@@ -144,56 +173,100 @@ function test_reformulate_disjunct_constraint()
     @constraint(model, lessthan, x[1] <= 1, Disjunct(Y[1]))
     @constraint(model, greaterthan, x[1] >= 1, Disjunct(Y[1]))
     @constraint(model, equalto, x[1] == 1, Disjunct(Y[2]))
-    @constraint(model, nonpositives, -x in MOI.Nonpositives(2), 
+    @constraint(model, nonpositives, -x in MOI.Nonpositives(2),
         Disjunct(Y[3]))
-    @constraint(model, nonnegatives, x in MOI.Nonnegatives(2), 
+    @constraint(model, nonnegatives, x in MOI.Nonnegatives(2),
         Disjunct(Y[4]))
     @constraint(model, zeros, -x .+ 1 in MOI.Zeros(2), Disjunct(Y[5]))
     @disjunction(model, disjunction,[Y[1], Y[2], Y[3], Y[4], Y[5]])
-    method = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    for i in 1:5
-        method.M[Y[i]] = Float64(i)
-    end
     bconref = Dict(Y[i] => binary_variable(Y[i]) for i in 1:5)
-    reformulated_constraints = [reformulate_disjunct_constraint(model, 
-        constraint_object(constraints), bconref, method) 
-        for constraints in [lessthan, greaterthan, equalto, nonpositives, 
-            nonnegatives, zeros, disjunction]]
-    @test reformulated_constraints[1][1].func == JuMP.@expression(model, 
-        x[1] - sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[1][1].set == MOI.LessThan(1.0)
-    @test reformulated_constraints[2][1].func == JuMP.@expression(model, 
-        x[1] + sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[2][1].set == MOI.GreaterThan(1.0)
-    @test reformulated_constraints[3][1].func == JuMP.@expression(model, 
-        x[1] + sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[3][1].set == MOI.GreaterThan(1.0)
-    @test reformulated_constraints[3][2].func == JuMP.@expression(model, 
-        x[1] - sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[3][2].set == MOI.LessThan(1.0)
-    @test reformulated_constraints[4][1].func == JuMP.@expression(model, 
-        -x .- sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[4][1].set == MOI.Nonpositives(2)
-    @test reformulated_constraints[5][1].func == JuMP.@expression(model, 
-        x .+ sum(method.M[i] * bconref[i] for i in keys(method.M))) && 
-        reformulated_constraints[5][1].set == MOI.Nonnegatives(2)
-    @test reformulated_constraints[6][1].func == JuMP.@expression(model,
-        -x .+(1 + sum(method.M[i] * bconref[i] for i in keys(method.M)))) &&
-        reformulated_constraints[6][1].set == MOI.Nonnegatives(2)
-    @test reformulated_constraints[6][2].func == JuMP.@expression(model,
-        -x .+(1 - sum(method.M[i] * bconref[i] for i in keys(method.M)))) &&
-        reformulated_constraints[6][2].set == MOI.Nonpositives(2)
 
-    @test length(reformulated_constraints[7]) >= 2
-    @test reformulated_constraints[7][1].set == MOI.LessThan(1.0)
-    @test reformulated_constraints[7][2].set == MOI.GreaterThan(1.0)
-    # Verify x[1] has coefficient 1.0 in both constraints
-    @test JuMP.coefficient(reformulated_constraints[7][1].func, x[1]) == 1.0
-    @test JuMP.coefficient(reformulated_constraints[7][2].func, x[1]) == 1.0
+    # Test scalar constraints (LessThan, GreaterThan) with scalar M values
+    method_scalar = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
+    for i in 1:5
+        method_scalar.M[Y[i]] = Float64(i)
+    end
+    ref_lessthan = reformulate_disjunct_constraint(
+        model, constraint_object(lessthan), bconref, method_scalar)
+    ref_greaterthan = reformulate_disjunct_constraint(
+        model, constraint_object(greaterthan), bconref, method_scalar)
+    @test ref_lessthan[1].func == JuMP.@expression(model,
+        x[1] - sum(method_scalar.M[i] * bconref[i]
+            for i in keys(method_scalar.M))) &&
+        ref_lessthan[1].set == MOI.LessThan(1.0)
+    @test ref_greaterthan[1].func == JuMP.@expression(model,
+        x[1] + sum(method_scalar.M[i] * bconref[i]
+            for i in keys(method_scalar.M))) &&
+        ref_greaterthan[1].set == MOI.GreaterThan(1.0)
+
+    # Test bidirectional constraint (EqualTo) with [M_lower, M_upper] values
+    method_equalto = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
+    for i in 1:5
+        method_equalto.M[Y[i]] = [Float64(i), Float64(i)]
+    end
+    ref_equalto = reformulate_disjunct_constraint(
+        model, constraint_object(equalto), bconref, method_equalto)
+    @test ref_equalto[1].func == JuMP.@expression(model,
+        x[1] + sum(method_equalto.M[i][1] * bconref[i]
+            for i in keys(method_equalto.M))) &&
+        ref_equalto[1].set == MOI.GreaterThan(1.0)
+    @test ref_equalto[2].func == JuMP.@expression(model,
+        x[1] - sum(method_equalto.M[i][2] * bconref[i]
+            for i in keys(method_equalto.M))) &&
+        ref_equalto[2].set == MOI.LessThan(1.0)
+
+    # Test vector constraints with per-row M values [M_row1, M_row2]
+    method_vector = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
+    for i in 1:5
+        method_vector.M[Y[i]] = [Float64(i), Float64(i)]
+    end
+    ref_nonpositives = reformulate_disjunct_constraint(
+        model, constraint_object(nonpositives), bconref, method_vector)
+    ref_nonnegatives = reformulate_disjunct_constraint(
+        model, constraint_object(nonnegatives), bconref, method_vector)
+    ref_zeros = reformulate_disjunct_constraint(
+        model, constraint_object(zeros), bconref, method_vector)
+    @test ref_nonpositives[1].func == JuMP.@expression(model, [j=1:2],
+        -x[j] - sum(method_vector.M[i][j] * bconref[i]
+            for i in keys(method_vector.M))) &&
+        ref_nonpositives[1].set == MOI.Nonpositives(2)
+    @test ref_nonnegatives[1].func == JuMP.@expression(model, [j=1:2],
+        x[j] + sum(method_vector.M[i][j] * bconref[i]
+            for i in keys(method_vector.M))) &&
+        ref_nonnegatives[1].set == MOI.Nonnegatives(2)
+    @test ref_zeros[1].func == JuMP.@expression(model, [j=1:2],
+        -x[j] + 1 + sum(method_vector.M[i][j] * bconref[i]
+            for i in keys(method_vector.M))) &&
+        ref_zeros[1].set == MOI.Nonnegatives(2)
+    @test ref_zeros[2].func == JuMP.@expression(model, [j=1:2],
+        -x[j] + 1 - sum(method_vector.M[i][j] * bconref[i]
+            for i in keys(method_vector.M))) &&
+        ref_zeros[2].set == MOI.Nonpositives(2)
+
+    # Test nested disjunction reformulation with proper nested structure
+    # Create outer disjunct with inner disjunction
+    model2 = GDPModel()
+    @variable(model2, 0 <= z <= 50)
+    @variable(model2, Outer[1:2], Logical)  # Outer indicators
+    @variable(model2, Inner[1:2], Logical)  # Inner disjunction indicators
+    # Inner disjunction constraints (will be nested inside Outer[1])
+    @constraint(model2, inner_lt, z <= 1, Disjunct(Inner[1]))
+    @constraint(model2, inner_gt, z >= 1, Disjunct(Inner[2]))
+    @disjunction(model2, inner_disj, Inner)
+    # bconref contains ONLY the OTHER outer indicator (Outer[2])
+    # This is what happens when reformulating Outer[1]'s constraints
+    method_nested = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
+    bconref2 = Dict(Outer[2] => binary_variable(Outer[2]))
+    method_nested.M[Outer[2]] = 10.0  # Scalar M for outer reformulation
+    ref_disjunction = reformulate_disjunct_constraint(
+        model2, constraint_object(inner_disj), bconref2, method_nested)
+    @test length(ref_disjunction) >= 2
+    # Verify structure: inner reformulation + outer Big-M terms
+    @test JuMP.coefficient(ref_disjunction[1].func, z) == 1.0
+    @test JuMP.coefficient(ref_disjunction[2].func, z) == 1.0
 
     @test_throws ErrorException reformulate_disjunct_constraint(model,
-        "odd", bconref, method)
-
+        "odd", bconref, method_scalar)
 end
 
 function test_reformulate_disjunct()
@@ -222,11 +295,12 @@ function test_reformulate_disjunct()
     @test JuMP.coefficient(func_1, x[1]) == 1.0
     @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -1.5
 
+    # Per-bound M: lower bound uses M_lower=1.5, upper bound uses M_upper=2.5
     @test JuMP.coefficient(func_2, x[1]) == 1.0
-    @test JuMP.coefficient(func_2, binary_variable(Y[1])) == 2.5
+    @test JuMP.coefficient(func_2, binary_variable(Y[1])) == 1.5  # M_lower
 
     @test JuMP.coefficient(func_3, x[1]) == 1.0
-    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -2.5
+    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -2.5  # -M_upper
 end
 
 function test_reformulate_disjunction()
@@ -251,28 +325,28 @@ function test_reformulate_disjunction()
 
     @test ref_cons[4].set == MOI.LessThan(55.0)
 
-    # Per-constraint M values:
+    # Per-constraint, per-bound M values:
     # - lessthan (x <= 2) in Y[2] region (0 <= x <= 55): max(x-2) at x=55 → M=53
     # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 → M=1
-    # - interval in Y[1]: _maximize_M for Interval takes max(M_lower, M_upper)
-    #   - M_lower (x >= 0): max(-x) s.t. 1<=x<=2 → -1
-    #   - M_upper (x <= 55): max(x-55) s.t. 1<=x<=2 → -53
+    # - interval in Y[1] region (1 <= x <= 2):
+    #   - M_lower (x >= 0): max(0-x) at x=1 → M_lower=-1
+    #   - M_upper (x <= 55): max(x-55) at x=2 → M_upper=-53
     func_1 = ref_cons[1].func  # x - 53*Y[2] <= 2.0
-    func_2 = ref_cons[2].func  # x + 1*Y[2] >= 1.0 (per-constraint M=1)
-    func_3 = ref_cons[3].func  # x + (-1)*Y[1] >= 0.0
-    func_4 = ref_cons[4].func  # x - (-1)*Y[1] <= 55.0 → x + Y[1] <= 55.0
+    func_2 = ref_cons[2].func  # x + 1*Y[2] >= 1.0
+    func_3 = ref_cons[3].func  # x + M_lower*Y[1] >= 0.0 → x + (-1)*Y[1] >= 0
+    func_4 = ref_cons[4].func  # x - M_upper*Y[1] <= 55 → x - (-53)*Y[1] <= 55
 
     @test JuMP.coefficient(func_1, x) == 1.0
     @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -53.0
 
     @test JuMP.coefficient(func_2, x) == 1.0
-    @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 1.0 
+    @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 1.0
 
     @test JuMP.coefficient(func_3, x) == 1.0
     @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -1.0
 
     @test JuMP.coefficient(func_4, x) == 1.0
-    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 1.0
+    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 53.0  # -M_upper = -(-53) = 53
 end
 
 @testset "MBM" begin

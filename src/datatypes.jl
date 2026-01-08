@@ -388,15 +388,15 @@ end
 
 mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
     optimizer::O
-    M::Dict{LogicalVariableRef{M}, T}                        
-    default_M::T                            
-    conlvref::Vector{LogicalVariableRef{M}}                  
+    M::Dict{LogicalVariableRef{M}, Union{T, Vector{T}}}
+    default_M::T
+    conlvref::Vector{LogicalVariableRef{M}}
 
     function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
         new{O, T, M}(method.optimizer,
-            Dict{LogicalVariableRef{M}, T}(), 
+            Dict{LogicalVariableRef{M}, Union{T, Vector{T}}}(),
             method.default_M,
-            Vector{LogicalVariableRef{M}}()                               
+            Vector{LogicalVariableRef{M}}()
         )
     end
 end
