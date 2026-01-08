@@ -74,7 +74,7 @@ function reformulate_disjunct_constraint(
     return new_ref_cons
 end
 
-# Per-row M values: method.M[d] is a Vector, index with [j] for row j
+# Uses per-row M values: method.M[d][row] for each disjunct d
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
@@ -82,13 +82,14 @@ function reformulate_disjunct_constraint(
                    Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::_MBM
 ) where {T, S <: _MOI.Nonpositives, R}
-    new_func = JuMP.@expression(model, [j=1:con.set.dimension],
-        con.func[j] - sum(method.M[d][j] * bconref[d] for d in keys(method.M))
+    new_func = JuMP.@expression(model, [i=1:con.set.dimension],
+        con.func[i] - sum(method.M[d][i] * bconref[d] for d in keys(method.M))
     )
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
 
+# Uses per-row M values: method.M[d][row] for each disjunct d
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
@@ -96,30 +97,31 @@ function reformulate_disjunct_constraint(
                    Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::_MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
-    new_func = JuMP.@expression(model, [j=1:con.set.dimension],
-        con.func[j] + sum(method.M[d][j] * bconref[d] for d in keys(method.M))
+    new_func = JuMP.@expression(model, [i=1:con.set.dimension],
+        con.func[i] + sum(method.M[d][i] * bconref[d] for d in keys(method.M))
     )
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
 
+# Uses per-row M values: method.M[d][row] for each disjunct d
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.VectorConstraint{T, S, R},
-    bconref:: Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
+    bconref::Union{Dict{<:LogicalVariableRef,<:JuMP.AbstractVariableRef},
                    Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::_MBM
 ) where {T, S <: _MOI.Zeros, R}
-    upper_expr = JuMP.@expression(model, [j=1:con.set.dimension],
-        con.func[j] + sum(method.M[d][j] * bconref[d] for d in keys(method.M))
+    upper_expr = JuMP.@expression(model, [i=1:con.set.dimension],
+        con.func[i] + sum(method.M[d][i] * bconref[d] for d in keys(method.M))
     )
-    lower_expr = JuMP.@expression(model, [j=1:con.set.dimension],
-        con.func[j] - sum(method.M[d][j] * bconref[d] for d in keys(method.M))
+    lower_expr = JuMP.@expression(model, [i=1:con.set.dimension],
+        con.func[i] - sum(method.M[d][i] * bconref[d] for d in keys(method.M))
     )
-    upper_con = JuMP.build_constraint(error, upper_expr,
+    upper_con = JuMP.build_constraint(error, upper_expr, 
         MOI.Nonnegatives(con.set.dimension)
     )
-    lower_con = JuMP.build_constraint(error, lower_expr,
+    lower_con = JuMP.build_constraint(error, lower_expr, 
         MOI.Nonpositives(con.set.dimension)
     )
     return [upper_con, lower_con]
@@ -153,7 +155,7 @@ function reformulate_disjunct_constraint(
     return [reform_con]
 end
 
-# Per-bound M values: method.M[d] = [M_lower, M_upper]
+# Uses per-bound M values: method.M[d][1] for lower, method.M[d][2] for upper
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
@@ -161,6 +163,7 @@ function reformulate_disjunct_constraint(
                    Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::_MBM
 ) where {T, S <: _MOI.EqualTo}
+    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan (upper)
     lower_func = JuMP.@expression(model,
         con.func + sum(method.M[d][1] * bconref[d] for d in keys(method.M))
     )
@@ -176,6 +179,7 @@ function reformulate_disjunct_constraint(
     return [lower_con, upper_con]
 end
 
+# Uses per-bound M values: method.M[d][1] for lower, method.M[d][2] for upper
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel,
     con::JuMP.ScalarConstraint{T, S},
@@ -184,6 +188,7 @@ function reformulate_disjunct_constraint(
     method::_MBM
 ) where {T, S <: _MOI.Interval}
     set_values = _set_values(con.set)
+    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan (upper)
     lower_func = JuMP.@expression(model,
         con.func + sum(method.M[d][1] * bconref[d] for d in keys(method.M))
     )
@@ -215,13 +220,13 @@ end
 ################################################################################
 # Dispatches over constraint types to reformulate into >= or <= 
 # in order to solve the mini-model
-# Per-row M values for vector constraints: returns Vector{T}
+# Returns Vector{T} - one M per row for tighter per-row relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel,
-    objective::JuMP.VectorConstraint{T, S, R},
-    constraints::Vector{<:DisjunctConstraintRef},
+    model::JuMP.AbstractModel, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::_MBM
-) where { T, S <: _MOI.Nonpositives, R}
+) where {T, S <: _MOI.Nonpositives, R}
     val_type = JuMP.value_type(typeof(model))
     return [
         _maximize_M(
@@ -233,51 +238,43 @@ function _maximize_M(
     ]
 end
 
+# Returns Vector{T} - one M per row for tighter per-row relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel,
-    objective::JuMP.VectorConstraint{T, S, R},
-    constraints::Vector{<:DisjunctConstraintRef},
+    model::JuMP.AbstractModel, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::_MBM
-) where { T, S <: _MOI.Nonnegatives, R}
+) where {T, S <: _MOI.Nonnegatives, R}
     val_type = JuMP.value_type(typeof(model))
     return [
         _maximize_M(
             model,
-            JuMP.ScalarConstraint(
-                objective.func[i],
-                MOI.GreaterThan(zero(val_type))
-            ),
+            JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(zero(val_type))),
             constraints,
             method
         ) for i in 1:objective.set.dimension
     ]
 end
 
-# For Zeros, each row is an equality: return per-row M = max(M_lower, M_upper)
+# Returns Vector{T} - one M per row, each is max(M_ge, M_le) for that row
 function _maximize_M(
-    model::JuMP.AbstractModel,
-    objective::JuMP.VectorConstraint{T, S, R},
-    constraints::Vector{<:DisjunctConstraintRef},
+    model::JuMP.AbstractModel, 
+    objective::JuMP.VectorConstraint{T, S, R}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::_MBM
-) where { T, S <: _MOI.Zeros, R}
+) where {T, S <: _MOI.Zeros, R}
     val_type = JuMP.value_type(typeof(model))
     return [
         max(
             _maximize_M(
                 model,
-                JuMP.ScalarConstraint(
-                    objective.func[i],
-                    MOI.GreaterThan(zero(val_type))
-                ),
+                JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(zero(val_type))),
                 constraints,
                 method
             ),
             _maximize_M(
                 model,
-                JuMP.ScalarConstraint(
-                    objective.func[i],
-                    MOI.LessThan(zero(val_type))
-                ),
+                JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(zero(val_type))),
                 constraints,
                 method
             )
@@ -294,65 +291,58 @@ function _maximize_M(
     return _mini_model(model, objective, constraints, method)
 end
 
-# Per-bound M values for bidirectional constraints: returns [M_lower, M_upper]
+# Returns [M_lower, M_upper] for per-bound relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel,
-    objective::JuMP.ScalarConstraint{T, S},
-    constraints::Vector{<:DisjunctConstraintRef},
+    model::JuMP.AbstractModel, 
+    objective::JuMP.ScalarConstraint{T, S}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::_MBM
 ) where {T, S <: _MOI.EqualTo}
     set_value = objective.set.value
-    M_lower = _mini_model(
-        model,
-        JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value)),
-        constraints,
-        method
-    )
-    M_upper = _mini_model(
-        model,
-        JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value)),
-        constraints,
-        method
-    )
-    return [M_lower, M_upper]
+    return [
+        _mini_model(
+            model,
+            JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value)),
+            constraints,
+            method
+        ),
+        _mini_model(
+            model,
+            JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value)),
+            constraints,
+            method
+        )
+    ]
 end
 
+# Returns [M_lower, M_upper] for per-bound relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel,
-    objective::JuMP.ScalarConstraint{T, S},
-    constraints::Vector{<:DisjunctConstraintRef},
+    model::JuMP.AbstractModel, 
+    objective::JuMP.ScalarConstraint{T, S}, 
+    constraints::Vector{<:DisjunctConstraintRef}, 
     method::_MBM
 ) where {T, S <: _MOI.Interval}
     set_values = _set_values(objective.set)  # Returns (lower, upper)
-    M_lower = _mini_model(
-        model,
-        JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_values[1])),
-        constraints,
-        method
-    )
-    M_upper = _mini_model(
-        model,
-        JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_values[2])),
-        constraints,
-        method
-    )
-    return [M_lower, M_upper]
-end
-
-# Nested Disjunctions: M computation skipped, handler creates fresh MBM
-function _maximize_M(
-    ::JuMP.AbstractModel,
-    ::Disjunction,
-    ::Vector{<:DisjunctConstraintRef},
-    ::_MBM
-)
-    return nothing
+    return [
+        _mini_model(
+            model,
+            JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_values[1])),
+            constraints,
+            method
+        ),
+        _mini_model(
+            model,
+            JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_values[2])),
+            constraints,
+            method
+        )
+    ]
 end
 
 function _maximize_M(
-    ::JuMP.AbstractModel,
-    ::F,
-    ::Vector{<:DisjunctConstraintRef},
+    ::JuMP.AbstractModel, 
+    ::F, 
+    ::Vector{<:DisjunctConstraintRef}, 
     ::_MBM
 ) where {F}
     error("This type of constraints and objective constraint has " *
