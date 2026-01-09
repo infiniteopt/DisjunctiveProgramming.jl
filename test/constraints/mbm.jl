@@ -249,21 +249,18 @@ function test_reformulate_disjunct_constraint()
     # Create outer disjunct with inner disjunction
     model2 = GDPModel()
     @variable(model2, 0 <= z <= 50)
-    @variable(model2, Outer[1:2], Logical)  # Outer indicators
-    @variable(model2, Inner[1:2], Logical)  # Inner disjunction indicators
-    # Inner disjunction constraints (will be nested inside Outer[1])
+    @variable(model2, Outer[1:2], Logical)
+    @variable(model2, Inner[1:2], Logical)
     @constraint(model2, inner_lt, z <= 1, Disjunct(Inner[1]))
     @constraint(model2, inner_gt, z >= 1, Disjunct(Inner[2]))
     @disjunction(model2, inner_disj, Inner)
-    # bconref contains ONLY the OTHER outer indicator (Outer[2])
-    # This is what happens when reformulating Outer[1]'s constraints
     method_nested = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     bconref2 = Dict(Outer[2] => binary_variable(Outer[2]))
-    method_nested.M[Outer[2]] = 10.0  # Scalar M for outer reformulation
+    method_nested.M[Outer[2]] = 10.0 #Dummy M value for testing.
+    #Normally  _reformulate_disjunct will this without having to assign a value
     ref_disjunction = reformulate_disjunct_constraint(
         model2, constraint_object(inner_disj), bconref2, method_nested)
     @test length(ref_disjunction) >= 2
-    # Verify structure: inner reformulation + outer Big-M terms
     @test JuMP.coefficient(ref_disjunction[1].func, z) == 1.0
     @test JuMP.coefficient(ref_disjunction[2].func, z) == 1.0
 
