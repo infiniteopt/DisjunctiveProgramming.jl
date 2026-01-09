@@ -2,7 +2,9 @@ using HiGHS
 
 function test_mbm()
 
-    @test DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model()).optimizer == HiGHS.Optimizer
+    @test DP._MBM(
+        DP.MBM(HiGHS.Optimizer), JuMP.Model()
+    ).optimizer == HiGHS.Optimizer
 
 end
 
@@ -326,7 +328,8 @@ function test_reformulate_disjunction()
     @test ref_cons[4].set == MOI.LessThan(55.0)
 
     # Per-constraint, per-bound M values:
-    # - lessthan (x <= 2) in Y[2] region (0 <= x <= 55): max(x-2) at x=55 → M=53
+    # - lessthan (x <= 2) in Y[2] region (0 <= x <= 55): max(x-2) at
+    #   x=55 → M=53
     # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 → M=1
     # - interval in Y[1] region (1 <= x <= 2):
     #   - M_lower (x >= 0): max(0-x) at x=1 → M_lower=-1
@@ -346,7 +349,8 @@ function test_reformulate_disjunction()
     @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -1.0
 
     @test JuMP.coefficient(func_4, x) == 1.0
-    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 53.0  # -M_upper = -(-53) = 53
+    # -M_upper = -(-53) = 53
+    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 53.0
 end
 
 @testset "MBM" begin

@@ -28,7 +28,9 @@ function _reformulate_disjunct(
     bconref = Dict(d => binary_variable(d) for d in method.conlvref)
 
     constraints = _indicator_to_constraints(model)[lvref]
-    filtered_constraints = [c for c in constraints if c isa DisjunctConstraintRef]
+    filtered_constraints = [
+        c for c in constraints if c isa DisjunctConstraintRef
+    ]
 
     # For each constraint, compute its own set of M values
     for cref in filtered_constraints
@@ -163,7 +165,8 @@ function reformulate_disjunct_constraint(
                    Dict{<:LogicalVariableRef,<:JuMP.GenericAffExpr}},
     method::_MBM
 ) where {T, S <: _MOI.EqualTo}
-    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan (upper)
+    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan
+    # (upper bound)
     lower_func = JuMP.@expression(model,
         con.func + sum(method.M[d][1] * bconref[d] for d in keys(method.M))
     )
@@ -188,7 +191,8 @@ function reformulate_disjunct_constraint(
     method::_MBM
 ) where {T, S <: _MOI.Interval}
     set_values = _set_values(con.set)
-    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan (upper)
+    # M[d][1] = M for GreaterThan (lower bound), M[d][2] = M for LessThan
+    # (upper bound)
     lower_func = JuMP.@expression(model,
         con.func + sum(method.M[d][1] * bconref[d] for d in keys(method.M))
     )
@@ -231,7 +235,9 @@ function _maximize_M(
     return [
         _maximize_M(
             model,
-            JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(zero(val_type))),
+            JuMP.ScalarConstraint(
+                objective.func[i], MOI.LessThan(zero(val_type))
+            ),
             constraints,
             method
         ) for i in 1:objective.set.dimension
@@ -249,7 +255,9 @@ function _maximize_M(
     return [
         _maximize_M(
             model,
-            JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(zero(val_type))),
+            JuMP.ScalarConstraint(
+                objective.func[i], MOI.GreaterThan(zero(val_type))
+            ),
             constraints,
             method
         ) for i in 1:objective.set.dimension
@@ -268,13 +276,17 @@ function _maximize_M(
         max(
             _maximize_M(
                 model,
-                JuMP.ScalarConstraint(objective.func[i], MOI.GreaterThan(zero(val_type))),
+                JuMP.ScalarConstraint(
+                    objective.func[i], MOI.GreaterThan(zero(val_type))
+                ),
                 constraints,
                 method
             ),
             _maximize_M(
                 model,
-                JuMP.ScalarConstraint(objective.func[i], MOI.LessThan(zero(val_type))),
+                JuMP.ScalarConstraint(
+                    objective.func[i], MOI.LessThan(zero(val_type))
+                ),
                 constraints,
                 method
             )
@@ -326,13 +338,17 @@ function _maximize_M(
     return [
         _mini_model(
             model,
-            JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_values[1])),
+            JuMP.ScalarConstraint(
+                objective.func, MOI.GreaterThan(set_values[1])
+            ),
             constraints,
             method
         ),
         _mini_model(
             model,
-            JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_values[2])),
+            JuMP.ScalarConstraint(
+                objective.func, MOI.LessThan(set_values[2])
+            ),
             constraints,
             method
         )
