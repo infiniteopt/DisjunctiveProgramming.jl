@@ -394,7 +394,7 @@ function _mini_model(
     else
         M = JuMP.objective_value(sub_model)
     end
-    return M
+    return max(M, 0)
 end
 
 ################################################################################

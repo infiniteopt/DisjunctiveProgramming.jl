@@ -74,8 +74,8 @@ function test_mini_model()
     @constraint(model, intervalcon, 0 <= x <= 55, Disjunct(Y[4]))
     @disjunction(model, [Y[1], Y[2], Y[3], Y[4]])
     mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    @test DP._mini_model(model, constraint_object(con), 
-        DisjunctConstraintRef[con2], mbm)== -4
+    @test DP._mini_model(model, constraint_object(con),
+        DisjunctConstraintRef[con2], mbm)== 0.0
     set_upper_bound(x, 1)
     @test DP._mini_model(model, constraint_object(con2), 
         DisjunctConstraintRef[con], mbm)== 15
@@ -113,11 +113,11 @@ function test_maximize_M()
 
     # Interval returns [M_lower, M_upper]
     # M_lower = max(0 - x[1]) s.t. 0<=x[1]<=10 = 0 at x[1]=0
-    # M_upper = max(x[1] - 55) s.t. 0<=x[1]<=10 = -45 at x[1]=10
+    # M_upper = max(x[1] - 55) s.t. 0<=x[1]<=10 = -45 at x[1]=10, clamped to 0
     @test DP._maximize_M(model, constraint_object(interval),
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]),
-        mbm) == [0.0, -45.0]
+        mbm) == [0.0, 0.0]
 
     # Scalar LessThan/GreaterThan still return scalars
     # lessthan: x[1] <= 1 vs interval 0 <= x[1] <= 55
@@ -292,7 +292,7 @@ function test_reformulate_disjunct()
     func_3 = reformulated_disjunct[3].func
 
     @test JuMP.coefficient(func_1, x[1]) == 1.0
-    @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -1.5
+    @test JuMP.coefficient(func_1, binary_variable(Y[2])) == 0.0
 
     # Per-bound M: lower bound uses M_lower=1.5, upper bound uses M_upper=2.5
     @test JuMP.coefficient(func_2, x[1]) == 1.0
@@ -329,12 +329,12 @@ function test_reformulate_disjunction()
     #   x=55 → M=53
     # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 → M=1
     # - interval in Y[1] region (1 <= x <= 2):
-    #   - M_lower (x >= 0): max(0-x) at x=1 → M_lower=-1
-    #   - M_upper (x <= 55): max(x-55) at x=2 → M_upper=-53
+    #   - M_lower (x >= 0): max(0-x) at x=1 → M_lower=-1, clamped to 0
+    #   - M_upper (x <= 55): max(x-55) at x=2 → M_upper=-53, clamped to 0
     func_1 = ref_cons[1].func  # x - 53*Y[2] <= 2.0
     func_2 = ref_cons[2].func  # x + 1*Y[2] >= 1.0
-    func_3 = ref_cons[3].func  # x + M_lower*Y[1] >= 0.0 → x + (-1)*Y[1] >= 0
-    func_4 = ref_cons[4].func  # x - M_upper*Y[1] <= 55 → x - (-53)*Y[1] <= 55
+    func_3 = ref_cons[3].func  # x + M_lower*Y[1] >= 0.0 → x + 0*Y[1] >= 0
+    func_4 = ref_cons[4].func  # x - M_upper*Y[1] <= 55 → x - 0*Y[1] <= 55
 
     @test JuMP.coefficient(func_1, x) == 1.0
     @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -53.0
@@ -343,11 +343,11 @@ function test_reformulate_disjunction()
     @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 1.0
 
     @test JuMP.coefficient(func_3, x) == 1.0
-    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == -1.0
+    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == 0.0
 
     @test JuMP.coefficient(func_4, x) == 1.0
-    # -M_upper = -(-53) = 53
-    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 53.0
+    # -M_upper = -0 = 0
+    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 0.0
 end
 
 @testset "MBM" begin
