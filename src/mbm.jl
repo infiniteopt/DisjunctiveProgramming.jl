@@ -2,14 +2,8 @@
 #                              HELPER FUNCTIONS
 ################################################################################
 # Check if M result (scalar or vector) contains only zeros
-function _is_all_zeros(M)
-    if M isa Number
-        return M == 0
-    elseif M isa AbstractVector
-        return all(m == 0 for m in M)
-    end
-    return false
-end
+_is_all_zeros(M::Number) = iszero(M)
+_is_all_zeros(M::AbstractVector) = all(iszero, M)
 
 ################################################################################
 #               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
@@ -462,7 +456,7 @@ function _mini_model(
     else
         M = JuMP.objective_value(sub_model)
     end
-    return max(M, 0)
+    return max(M, zero(M))
 end
 
 ################################################################################

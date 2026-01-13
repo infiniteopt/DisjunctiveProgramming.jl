@@ -1,11 +1,19 @@
 using HiGHS
 
 function test_mbm()
-
     @test DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model()
     ).optimizer == HiGHS.Optimizer
 
+    # Test _is_all_zeros
+    @test DP._is_all_zeros(0)
+    @test DP._is_all_zeros(0.0)
+    @test !DP._is_all_zeros(1)
+    @test !DP._is_all_zeros(5.0)
+    @test DP._is_all_zeros([0, 0, 0])
+    @test DP._is_all_zeros([0.0, 0.0])
+    @test !DP._is_all_zeros([0, 1, 0])
+    @test !DP._is_all_zeros([5.0, 0.0])
 end
 
 function test__replace_variables_in_constraint()
