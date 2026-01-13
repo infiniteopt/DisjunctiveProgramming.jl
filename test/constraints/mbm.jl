@@ -67,28 +67,41 @@ function test_mini_model()
     model = GDPModel()
     @variable(model, 0 <= x, start = 1)
     @variable(model, 0 <= y)
-    @variable(model, Y[1:4], Logical)
+    @variable(model, Y[1:5], Logical)
     @constraint(model, con, 3*-x <= 4, Disjunct(Y[1]))
     @constraint(model, con2, 3*x + y >= 15, Disjunct(Y[2]))
     @constraint(model, infeasiblecon, 3*x + y == 15, Disjunct(Y[3]))
     @constraint(model, intervalcon, 0 <= x <= 55, Disjunct(Y[4]))
-    @disjunction(model, [Y[1], Y[2], Y[3], Y[4]])
+    #infeasible constraint (x >= 100 but x <= 1 after bounds)
+    @constraint(model, truly_infeasible, x >= 100, Disjunct(Y[5]))
+    @disjunction(model, [Y[1], Y[2], Y[3], Y[4], Y[5]])
     mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._mini_model(model, constraint_object(con),
         DisjunctConstraintRef[con2], mbm)== 0.0
     set_upper_bound(x, 1)
-    @test DP._mini_model(model, constraint_object(con2), 
+    @test DP._mini_model(model, constraint_object(con2),
         DisjunctConstraintRef[con], mbm)== 15
     set_integer(y)
     @constraint(model, con3, y*x == 15, Disjunct(Y[1]))
-    @test DP._mini_model(model, constraint_object(con2), 
+    @test DP._mini_model(model, constraint_object(con2),
         DisjunctConstraintRef[con], mbm)== 15
     JuMP.fix(y, 5; force=true)
-    @test DP._mini_model(model, constraint_object(con2), 
+    @test DP._mini_model(model, constraint_object(con2),
         DisjunctConstraintRef[con], mbm)== 10
+    # With x <= 1 and y = 5, con2's region (3x + y >= 15) is infeasible:
+    # 3(1) + 5 = 8 < 15, so returns nothing (detected infeasibility)
     delete_lower_bound(x)
-    @test DP._mini_model(model, constraint_object(con2), 
-        DisjunctConstraintRef[con2], mbm) == 1.0e9
+    @test DP._mini_model(model, constraint_object(con2),
+        DisjunctConstraintRef[con2], mbm) == nothing
+
+    # infeasible (x >= 100 but x has upper bound 1)
+    set_upper_bound(x, 1)
+    @test DP._mini_model(
+        model,
+        constraint_object(con),
+        DisjunctConstraintRef[truly_infeasible],
+        mbm
+    ) == nothing
 end
 
 function test_maximize_M()
@@ -154,7 +167,6 @@ function test_maximize_M()
             DP._indicator_to_constraints(model)[Y[2]]),
         mbm) == [0.0, 0.0]
 
-    # zeros: x == 1 against Y[2] - per-row M values differ!
     # Row 1: max(|x[1] - 1|) s.t. 0<=x[1]<=10 = max(9, 1) = 9
     # Row 2: max(|x[2] - 1|) s.t. 0<=x[2]<=5 = max(4, 1) = 4
     @test DP._maximize_M(model, constraint_object(zeros),
@@ -166,6 +178,46 @@ function test_maximize_M()
         Vector{DisjunctConstraintRef}(
             DP._indicator_to_constraints(model)[Y[2]]),
         mbm)
+
+    # Add an infeasible disjunct (x >= 100 but bounds are 0-10)
+    @variable(model, Y_infeas, Logical)
+    @constraint(model, infeas_con, x[1] >= 100, Disjunct(Y_infeas))
+
+    # Scalar constraint against infeasible disjunct -> nothing
+    @test DP._maximize_M(model, constraint_object(lessthan),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
+
+    # Vector constraint (Nonpositives) against infeasible -> nothing
+    @test DP._maximize_M(model, constraint_object(nonpositives),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
+
+    # Vector constraint (Nonnegatives) against infeasible -> nothing
+    @test DP._maximize_M(model, constraint_object(nonnegatives),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
+
+    # Vector constraint (Zeros) against infeasible -> nothing
+    @test DP._maximize_M(model, constraint_object(zeros),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
+
+    # Bidirectional scalar (EqualTo) against infeasible -> nothing
+    @test DP._maximize_M(model, constraint_object(equalto),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
+
+    # Bidirectional scalar (Interval) against infeasible -> nothing
+    @test DP._maximize_M(model, constraint_object(interval),
+        Vector{DisjunctConstraintRef}(
+            DP._indicator_to_constraints(model)[Y_infeas]),
+        mbm) == nothing
 end
 
 function test_reformulate_disjunct_constraint()
@@ -314,27 +366,25 @@ function test_reformulate_disjunction()
     method = DP.MBM(HiGHS.Optimizer)
     ref_cons = reformulate_disjunction(model, constraint_object(disj), method)
 
-    @test length(ref_cons) == 4
+    # 3 constraints: lessthan, greaterthan (with Big-M), interval (global)
+    @test length(ref_cons) == 3
 
     @test ref_cons[1].set == MOI.LessThan(2.0)
-
     @test ref_cons[2].set == MOI.GreaterThan(1.0)
-
-    @test ref_cons[3].set == MOI.GreaterThan(0.0)
-
-    @test ref_cons[4].set == MOI.LessThan(55.0)
+    # Interval is global (M=0 for both bounds in Y[1]'s region 1<=x<=2)
+    @test ref_cons[3].set == MOI.Interval(0.0, 55.0)
 
     # Per-constraint, per-bound M values:
     # - lessthan (x <= 2) in Y[2] region (0 <= x <= 55): max(x-2) at
-    #   x=55 → M=53
-    # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 → M=1
+    #   x=55 -> M=53
+    # - greaterthan (x >= 1) in Y[2] region: max(1-x) at x=0 -> M=1
     # - interval in Y[1] region (1 <= x <= 2):
-    #   - M_lower (x >= 0): max(0-x) at x=1 → M_lower=-1, clamped to 0
-    #   - M_upper (x <= 55): max(x-55) at x=2 → M_upper=-53, clamped to 0
+    #   - M_lower (x >= 0): max(0-x) at x=1 -> M_lower=-1, clamped to 0
+    #   - M_upper (x <= 55): max(x-55) at x=2 -> M_upper=-53, clamped to 0
+    #   - Both M=0 -> detected as global, added without Big-M
     func_1 = ref_cons[1].func  # x - 53*Y[2] <= 2.0
     func_2 = ref_cons[2].func  # x + 1*Y[2] >= 1.0
-    func_3 = ref_cons[3].func  # x + M_lower*Y[1] >= 0.0 → x + 0*Y[1] >= 0
-    func_4 = ref_cons[4].func  # x - M_upper*Y[1] <= 55 → x - 0*Y[1] <= 55
+    func_3 = ref_cons[3].func  # x (global, no binary variables)
 
     @test JuMP.coefficient(func_1, x) == 1.0
     @test JuMP.coefficient(func_1, binary_variable(Y[2])) == -53.0
@@ -342,12 +392,85 @@ function test_reformulate_disjunction()
     @test JuMP.coefficient(func_2, x) == 1.0
     @test JuMP.coefficient(func_2, binary_variable(Y[2])) == 1.0
 
+    # Global constraint has just x, no binary variables
     @test JuMP.coefficient(func_3, x) == 1.0
-    @test JuMP.coefficient(func_3, binary_variable(Y[1])) == 0.0
 
-    @test JuMP.coefficient(func_4, x) == 1.0
-    # -M_upper = -0 = 0
-    @test JuMP.coefficient(func_4, binary_variable(Y[1])) == 0.0
+    #Test infeasible disjunct detection and deactivation
+    model2 = GDPModel()
+    @variable(model2, 0 <= z <= 1)
+    @variable(model2, W[1:2], Logical)
+    # W[1]: z >= 5 is infeasible (z has upper bound 1)
+    @constraint(model2, z >= 5, Disjunct(W[1]))
+    # W[2]: z <= 0.5 is feasible
+    @constraint(model2, z <= 0.5, Disjunct(W[2]))
+    disj2 = disjunction(model2, [W[1], W[2]])
+
+    method2 = DP.MBM(HiGHS.Optimizer)
+    ref_cons2 = @test_logs (:warn, r"infeasible, deactivating") begin
+        reformulate_disjunction(model2, constraint_object(disj2), method2)
+    end
+
+    @test length(ref_cons2) == 1
+    @test ref_cons2[1].set == MOI.LessThan(0.5)
+
+    #Test multiple infeasible disjuncts
+    model3 = GDPModel()
+    @variable(model3, 0 <= w <= 1)
+    @variable(model3, V[1:3], Logical)
+    @constraint(model3, w >= 5, Disjunct(V[1]))   # infeasible
+    @constraint(model3, w >= 10, Disjunct(V[2]))  # infeasible
+    @constraint(model3, w <= 0.5, Disjunct(V[3])) # feasible
+    disj3 = disjunction(model3, [V[1], V[2], V[3]])
+
+    method3 = DP.MBM(HiGHS.Optimizer)
+    #warn about V[1] and V[2] being infeasible
+    ref_cons3 = @test_logs (:warn,) (:warn,) begin
+        reformulate_disjunction(model3, constraint_object(disj3), method3)
+    end
+
+    # Only V[3]'s constraint should be reformulated
+    @test length(ref_cons3) == 1
+    @test ref_cons3[1].set == MOI.LessThan(0.5)
+
+    model4 = GDPModel()
+    @variable(model4, 0 <= u <= 10)
+    @variable(model4, U[1:2], Logical)
+    @constraint(model4, u <= 3, Disjunct(U[1]))
+    @constraint(model4, u >= 5, Disjunct(U[2]))
+    disj4 = disjunction(model4, [U[1], U[2]])
+
+    method4 = DP.MBM(HiGHS.Optimizer)
+    ref_cons4 = @test_nowarn begin
+        reformulate_disjunction(model4, constraint_object(disj4), method4)
+    end
+    @test length(ref_cons4) == 2
+
+    # Disjunct 1: x <= 10 (will be global because D2's region has x <= 5)
+    # Disjunct 2: x <= 5
+    # max(x - 10) s.t. x <= 5 = 5 - 10 = -5, clamped to 0
+    # So M = 0 for D1's constraint -> it's global
+    model5 = GDPModel()
+    @variable(model5, 0 <= g <= 10)
+    @variable(model5, G[1:2], Logical)
+    @constraint(model5, g <= 10, Disjunct(G[1]))  # global: other region is g<=5
+    @constraint(model5, g <= 5, Disjunct(G[2]))
+    disj5 = disjunction(model5, [G[1], G[2]])
+
+    method5 = DP.MBM(HiGHS.Optimizer)
+    ref_cons5 = reformulate_disjunction(model5, constraint_object(disj5), method5)
+    # G[1]'s constraint is global (added without Big-M)
+    # G[2]'s constraint has M > 0 (needs Big-M): max(g - 5) s.t. g<=10 = 5
+    @test length(ref_cons5) == 2
+    # Check that one constraint has binary variable coefficient (Big-M term)
+    # and one doesn't (global)
+    global_con = ref_cons5[1]  # g <= 10 (global)
+    bigm_con = ref_cons5[2]    # g <= 5 with Big-M
+    @test global_con.set == MOI.LessThan(10.0)
+    @test bigm_con.set == MOI.LessThan(5.0)
+    # Global constraint should have no binary variable coefficient
+    @test JuMP.coefficient(global_con.func, binary_variable(G[2])) == 0.0
+    # Big-M constraint should have binary variable coefficient = -5
+    @test JuMP.coefficient(bigm_con.func, binary_variable(G[1])) == -5.0
 end
 
 @testset "MBM" begin
