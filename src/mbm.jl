@@ -1,17 +1,53 @@
 ################################################################################
+#                              HELPER FUNCTIONS
+################################################################################
+# Check if M result (scalar or vector) contains only zeros
+function _is_all_zeros(M)
+    if M isa Number
+        return M == 0
+    elseif M isa AbstractVector
+        return all(m == 0 for m in M)
+    end
+    return false
+end
+
+################################################################################
 #               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
 ################################################################################
-#Reformulates the disjunction using multiple big-M values
+# Reformulates the disjunction using multiple big-M values
 function reformulate_disjunction(
-    model::JuMP.AbstractModel, 
+    model::JuMP.AbstractModel,
     disj::Disjunction,
     method::MBM
 )
     mbm = _MBM(method, model)
-    ref_cons = Vector{JuMP.AbstractConstraint}() 
+    ref_cons = Vector{JuMP.AbstractConstraint}()
+    # Track index ranges for each disjunct's constraints: (start, end)
+    disjunct_ranges = Dict{LogicalVariableRef, Tuple{Int, Int}}()
     for d in disj.indicators
-        mbm.conlvref = filter(x -> x != d, disj.indicators)
+        d in mbm.deactivated && continue
+        mbm.conlvref = filter(
+            x -> x != d && !(x in mbm.deactivated),
+            disj.indicators
+        )
+        start_idx = length(ref_cons) + 1
         _reformulate_disjunct(model, ref_cons, d, mbm)
+        end_idx = length(ref_cons)
+        if end_idx >= start_idx
+            disjunct_ranges[d] = (start_idx, end_idx)
+        end
+    end
+    # Remove constraints from deactivated disjuncts (in reverse order)
+    indices_to_remove = Int[]
+    for deact in mbm.deactivated
+        if haskey(disjunct_ranges, deact)
+            start_idx, end_idx = disjunct_ranges[deact]
+            append!(indices_to_remove, start_idx:end_idx)
+        end
+    end
+    sort!(indices_to_remove, rev=true)
+    for idx in indices_to_remove
+        deleteat!(ref_cons, idx)
     end
     return ref_cons
 end
@@ -25,7 +61,9 @@ function _reformulate_disjunct(
     method::_MBM
 )
     !haskey(_indicator_to_constraints(model), lvref) && return
-    bconref = Dict(d => binary_variable(d) for d in method.conlvref)
+    # Filter out deactivated disjuncts from binary variable mapping
+    active_conlvref = filter(d -> !(d in method.deactivated), method.conlvref)
+    bconref = Dict(d => binary_variable(d) for d in active_conlvref)
 
     constraints = _indicator_to_constraints(model)[lvref]
     filtered_constraints = [
@@ -34,26 +72,46 @@ function _reformulate_disjunct(
 
     # For each constraint, compute its own set of M values
     for cref in filtered_constraints
-        empty!(method.M) 
+        empty!(method.M)
 
         for d in method.conlvref
+            # Skip already-deactivated disjuncts
+            d in method.deactivated && continue
+
             d_constraints = _indicator_to_constraints(model)[d]
             disjunct_constraints = [
                 c for c in d_constraints if c isa DisjunctConstraintRef
             ]
             if !isempty(disjunct_constraints)
-                method.M[d] = _maximize_M(
+                M_result = _maximize_M(
                     model,
                     JuMP.constraint_object(cref),
                     disjunct_constraints,
                     method
                 )
+                # Check for infeasibility: disjunct d has empty feasible region
+                if M_result === nothing
+                    push!(method.deactivated, d)
+                    @warn "Disjunct $(d) is infeasible, deactivating."
+                    # Remove from bconref since it's now deactivated
+                    delete!(bconref, d)
+                else
+                    method.M[d] = M_result
+                end
             end
         end
 
         con = JuMP.constraint_object(cref)
-        append!(ref_cons, reformulate_disjunct_constraint(model, con,
-            bconref, method))
+        # Check if all M values are zero (constraint is global)
+        if !isempty(method.M) &&
+           all(_is_all_zeros(method.M[d]) for d in keys(method.M))
+            @info "Constraint is global (M ≤ 0 for all disjuncts), " *
+                  "adding without Big-M relaxation."
+            push!(ref_cons, con)
+        else
+            append!(ref_cons, reformulate_disjunct_constraint(model, con,
+                bconref, method))
+        end
     end
     return ref_cons
 end
@@ -224,15 +282,15 @@ end
 ################################################################################
 # Dispatches over constraint types to reformulate into >= or <= 
 # in order to solve the mini-model
-# Returns Vector{T} - one M per row for tighter per-row relaxations
+# Returns Vector{T} or nothing - one M per row for tighter per-row relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.VectorConstraint{T, S, R},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T, S <: _MOI.Nonpositives, R}
     val_type = JuMP.value_type(typeof(model))
-    return [
+    results = [
         _maximize_M(
             model,
             JuMP.ScalarConstraint(
@@ -242,17 +300,19 @@ function _maximize_M(
             method
         ) for i in 1:objective.set.dimension
     ]
+    any(r === nothing for r in results) && return nothing
+    return results
 end
 
-# Returns Vector{T} - one M per row for tighter per-row relaxations
+# Returns Vector{T} or nothing - one M per row for tighter per-row relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.VectorConstraint{T, S, R},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T, S <: _MOI.Nonnegatives, R}
     val_type = JuMP.value_type(typeof(model))
-    return [
+    results = [
         _maximize_M(
             model,
             JuMP.ScalarConstraint(
@@ -262,36 +322,40 @@ function _maximize_M(
             method
         ) for i in 1:objective.set.dimension
     ]
+    any(r === nothing for r in results) && return nothing
+    return results
 end
 
-# Returns Vector{T} - one M per row, each is max(M_ge, M_le) for that row
+# Returns Vector{T} or nothing - one M per row, each is max(M_ge, M_le)
 function _maximize_M(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.VectorConstraint{T, S, R}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.VectorConstraint{T, S, R},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T, S <: _MOI.Zeros, R}
     val_type = JuMP.value_type(typeof(model))
-    return [
-        max(
-            _maximize_M(
-                model,
-                JuMP.ScalarConstraint(
-                    objective.func[i], MOI.GreaterThan(zero(val_type))
-                ),
-                constraints,
-                method
+    results = []
+    for i in 1:objective.set.dimension
+        M_ge = _maximize_M(
+            model,
+            JuMP.ScalarConstraint(
+                objective.func[i], MOI.GreaterThan(zero(val_type))
             ),
-            _maximize_M(
-                model,
-                JuMP.ScalarConstraint(
-                    objective.func[i], MOI.LessThan(zero(val_type))
-                ),
-                constraints,
-                method
-            )
-        ) for i in 1:objective.set.dimension
-    ]
+            constraints,
+            method
+        )
+        M_le = _maximize_M(
+            model,
+            JuMP.ScalarConstraint(
+                objective.func[i], MOI.LessThan(zero(val_type))
+            ),
+            constraints,
+            method
+        )
+        (M_ge === nothing || M_le === nothing) && return nothing
+        push!(results, max(M_ge, M_le))
+    end
+    return results
 end
 
 function _maximize_M(
@@ -303,56 +367,56 @@ function _maximize_M(
     return _mini_model(model, objective, constraints, method)
 end
 
-# Returns [M_lower, M_upper] for per-bound relaxations
+# Returns [M_lower, M_upper] or nothing for per-bound relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.ScalarConstraint{T, S},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T, S <: _MOI.EqualTo}
     set_value = objective.set.value
-    return [
-        _mini_model(
-            model,
-            JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value)),
-            constraints,
-            method
-        ),
-        _mini_model(
-            model,
-            JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value)),
-            constraints,
-            method
-        )
-    ]
+    M_lower = _mini_model(
+        model,
+        JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value)),
+        constraints,
+        method
+    )
+    M_upper = _mini_model(
+        model,
+        JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value)),
+        constraints,
+        method
+    )
+    (M_lower === nothing || M_upper === nothing) && return nothing
+    return [M_lower, M_upper]
 end
 
-# Returns [M_lower, M_upper] for per-bound relaxations
+# Returns [M_lower, M_upper] or nothing for per-bound relaxations
 function _maximize_M(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.ScalarConstraint{T, S}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.ScalarConstraint{T, S},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T, S <: _MOI.Interval}
     set_values = _set_values(objective.set)  # Returns (lower, upper)
-    return [
-        _mini_model(
-            model,
-            JuMP.ScalarConstraint(
-                objective.func, MOI.GreaterThan(set_values[1])
-            ),
-            constraints,
-            method
+    M_lower = _mini_model(
+        model,
+        JuMP.ScalarConstraint(
+            objective.func, MOI.GreaterThan(set_values[1])
         ),
-        _mini_model(
-            model,
-            JuMP.ScalarConstraint(
-                objective.func, MOI.LessThan(set_values[2])
-            ),
-            constraints,
-            method
-        )
-    ]
+        constraints,
+        method
+    )
+    M_upper = _mini_model(
+        model,
+        JuMP.ScalarConstraint(
+            objective.func, MOI.LessThan(set_values[2])
+        ),
+        constraints,
+        method
+    )
+    (M_lower === nothing || M_upper === nothing) && return nothing
+    return [M_lower, M_upper]
 end
 
 function _maximize_M(
@@ -387,9 +451,13 @@ function _mini_model(
     JuMP.set_optimizer(sub_model, method.optimizer)
     JuMP.set_silent(sub_model)
     JuMP.optimize!(sub_model)
-    if JuMP.termination_status(sub_model) != MOI.OPTIMAL || 
-       !JuMP.has_values(sub_model) || 
-       JuMP.primal_status(sub_model) != MOI.FEASIBLE_POINT
+    status = JuMP.termination_status(sub_model)
+    # Detect infeasibility: other disjunct has empty feasible region
+    if status == MOI.INFEASIBLE
+        return nothing
+    elseif status != MOI.OPTIMAL ||
+           !JuMP.has_values(sub_model) ||
+           JuMP.primal_status(sub_model) != MOI.FEASIBLE_POINT
         M = method.default_M
     else
         M = JuMP.objective_value(sub_model)
