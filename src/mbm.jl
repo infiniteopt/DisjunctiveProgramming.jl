@@ -15,33 +15,24 @@ function reformulate_disjunction(
     method::MBM
 )
     mbm = _MBM(method, model)
-    ref_cons = Vector{JuMP.AbstractConstraint}()
-    # Track index ranges for each disjunct's constraints: (start, end)
-    disjunct_ranges = Dict{LogicalVariableRef, Tuple{Int, Int}}()
+    # Store constraints per disjunct, then flatten excluding deactivated
+    disjunct_cons = Dict{LogicalVariableRef, Vector{JuMP.AbstractConstraint}}()
     for d in disj.indicators
         d in mbm.deactivated && continue
         mbm.conlvref = filter(
             x -> x != d && !(x in mbm.deactivated),
             disj.indicators
         )
-        start_idx = length(ref_cons) + 1
-        _reformulate_disjunct(model, ref_cons, d, mbm)
-        end_idx = length(ref_cons)
-        if end_idx >= start_idx
-            disjunct_ranges[d] = (start_idx, end_idx)
-        end
+        disjunct_cons[d] = Vector{JuMP.AbstractConstraint}()
+        _reformulate_disjunct(model, disjunct_cons[d], d, mbm)
     end
-    # Remove constraints from deactivated disjuncts (in reverse order)
-    indices_to_remove = Int[]
-    for deact in mbm.deactivated
-        if haskey(disjunct_ranges, deact)
-            start_idx, end_idx = disjunct_ranges[deact]
-            append!(indices_to_remove, start_idx:end_idx)
-        end
-    end
-    sort!(indices_to_remove, rev=true)
-    for idx in indices_to_remove
-        deleteat!(ref_cons, idx)
+    # Collect constraints from non-deactivated disjuncts
+    # it needs to be in a separate loop because disjuncts are only deactivated 
+    # by looking reforming other disjuncts (subproblem infeasibility)
+    ref_cons = Vector{JuMP.AbstractConstraint}()
+    for d in disj.indicators
+        d in mbm.deactivated && continue
+        haskey(disjunct_cons, d) && append!(ref_cons, disjunct_cons[d])
     end
     return ref_cons
 end
