@@ -31,14 +31,16 @@ function reformulate_disjunction(
     # by looking reforming other disjuncts (subproblem infeasibility)
     ref_cons = Vector{JuMP.AbstractConstraint}()
     for d in disj.indicators
+        #Skip deactivated disjuncts
         d in mbm.deactivated && continue
+        #Skip disjuncts with no constraints
         haskey(disjunct_cons, d) && append!(ref_cons, disjunct_cons[d])
     end
     return ref_cons
 end
 
 # Reformulates a disjunct represented by lvref using per-constraint M values.
-# gets its own set of M_{ie,i'} values for each other term i'.
+# Gets its own set of M_{ie,i'} values for each other term i'.
 function _reformulate_disjunct(
     model::JuMP.AbstractModel,
     ref_cons::Vector{JuMP.AbstractConstraint},
@@ -47,6 +49,7 @@ function _reformulate_disjunct(
 )
     !haskey(_indicator_to_constraints(model), lvref) && return
     # Filter out deactivated disjuncts from binary variable mapping
+    # in the event we've identified some infeasible disjuncts already
     active_conlvref = filter(d -> !(d in method.deactivated), method.conlvref)
     bconref = Dict(d => binary_variable(d) for d in active_conlvref)
 
@@ -87,7 +90,8 @@ function _reformulate_disjunct(
         end
 
         con = JuMP.constraint_object(cref)
-        # Check if all M values are zero (constraint is global)
+        # Check if all M values are zero for that constraint
+        # If so, it should be enforced globally (no reformulation with binaries)
         if !isempty(method.M) &&
            all(_is_all_zeros(method.M[d]) for d in keys(method.M))
             @info "Constraint is global (M ≤ 0 for all disjuncts), " *
@@ -112,9 +116,9 @@ function reformulate_disjunct_constraint(
     ref_cons = reformulate_disjunction(model, con, MBM(method.optimizer))
     new_ref_cons = Vector{JuMP.AbstractConstraint}()
     for ref_con in ref_cons
-        append!(new_ref_cons, 
-        reformulate_disjunct_constraint(model, ref_con, bconref, method)
-        ) 
+        append!(new_ref_cons,
+            reformulate_disjunct_constraint(model, ref_con, bconref, method)
+        )
     end
     return new_ref_cons
 end
