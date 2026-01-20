@@ -418,40 +418,62 @@ function _maximize_M(
           "not been implemented for MBM subproblems\nF: $(F)")
 end
 
-# Solve a mini-model to find the maximum value of the objective 
-# function for M value
+# Solve a mini-model to find the maximum value of the objective function for M.
+# Uses stored submodels to avoid rebuilding from scratch each time.
 function _mini_model(
-    model::JuMP.AbstractModel, 
-    objective::JuMP.ScalarConstraint{T,S}, 
-    constraints::Vector{<:DisjunctConstraintRef}, 
+    model::JuMP.AbstractModel,
+    objective::JuMP.ScalarConstraint{T,S},
+    constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM
 ) where {T,S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
-    var_type = JuMP.variable_ref_type(model)
-    sub_model = _copy_model(model)
-    new_vars = Dict{var_type, var_type}()
-    for var in collect_all_vars(model)
-        new_vars[var] = variable_copy(sub_model, var)
+    indicator = _constraint_to_indicator(model)[first(constraints)]
+
+    # Get or create stored submodel for this disjunct's feasible region
+    if !haskey(method.store, indicator)
+        method.store[indicator] = _create_submodel(model, constraints, method)
     end
-    for con in [JuMP.constraint_object(con) for con in constraints]
-        expr = _replace_variables_in_constraint(con.func, new_vars)
-        JuMP.@constraint(sub_model, expr * 1.0 in con.set)
-    end
-    _constraint_to_objective(sub_model, objective, new_vars)
-    JuMP.set_optimizer(sub_model, method.optimizer)
-    JuMP.set_silent(sub_model)
+    sub_model, var_map = method.store[indicator]
+
+    # Set objective and solve
+    _constraint_to_objective(sub_model, objective, var_map)
     JuMP.optimize!(sub_model)
     status = JuMP.termination_status(sub_model)
-    # Detect infeasibility: other disjunct has empty feasible region
-    if status == MOI.INFEASIBLE
+
+    # Return M value
+    if status == _MOI.INFEASIBLE
         return nothing
-    elseif status != MOI.OPTIMAL ||
+    elseif status != _MOI.OPTIMAL ||
            !JuMP.has_values(sub_model) ||
-           JuMP.primal_status(sub_model) != MOI.FEASIBLE_POINT
-        M = method.default_M
-    else
-        M = JuMP.objective_value(sub_model)
+           JuMP.primal_status(sub_model) != _MOI.FEASIBLE_POINT
+        return method.default_M
     end
-    return max(M, zero(M))
+    return max(JuMP.objective_value(sub_model), zero(method.default_M))
+end
+
+# Create a submodel for a disjunct's feasible region
+function _create_submodel(
+    model::JuMP.AbstractModel,
+    constraints::Vector{<:DisjunctConstraintRef},
+    method::_MBM
+)
+    var_type = JuMP.variable_ref_type(model)
+    sub_model = _copy_model(model)
+    var_map = Dict{var_type, var_type}()
+
+    for var in collect_all_vars(model)
+        var_map[var] = variable_copy(sub_model, var)
+    end
+
+    for cref in constraints
+        con = JuMP.constraint_object(cref)
+        expr = _replace_variables_in_constraint(con.func, var_map)
+        JuMP.@constraint(sub_model, expr * 1.0 in con.set)
+    end
+
+    JuMP.set_optimizer(sub_model, method.optimizer)
+    JuMP.set_silent(sub_model)
+
+    return (sub_model, var_map)
 end
 
 ################################################################################

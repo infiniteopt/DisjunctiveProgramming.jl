@@ -93,22 +93,26 @@ function test_mini_model()
     @constraint(model, con3, y*x == 15, Disjunct(Y[1]))
     @test DP._mini_model(model, constraint_object(con2),
         DisjunctConstraintRef[con], mbm)== 15
+    # Create fresh _MBM after changing bounds (as reformulate_disjunction does)
     JuMP.fix(y, 5; force=true)
+    mbm2 = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._mini_model(model, constraint_object(con2),
-        DisjunctConstraintRef[con], mbm)== 10
+        DisjunctConstraintRef[con], mbm2)== 10
     # With x <= 1 and y = 5, con2's region (3x + y >= 15) is infeasible:
     # 3(1) + 5 = 8 < 15, so returns nothing (detected infeasibility)
     delete_lower_bound(x)
+    mbm3 = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._mini_model(model, constraint_object(con2),
-        DisjunctConstraintRef[con2], mbm) == nothing
+        DisjunctConstraintRef[con2], mbm3) == nothing
 
     # infeasible (x >= 100 but x has upper bound 1)
     set_upper_bound(x, 1)
+    mbm4 = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     @test DP._mini_model(
         model,
         constraint_object(con),
         DisjunctConstraintRef[truly_infeasible],
-        mbm
+        mbm4
     ) == nothing
 end
 
@@ -481,7 +485,250 @@ function test_reformulate_disjunction()
     @test JuMP.coefficient(bigm_con.func, binary_variable(G[1])) == -5.0
 end
 
+################################################################################
+#                    LOW-LEVEL UNIT TESTS FOR MBM INFRASTRUCTURE
+################################################################################
+
+# Test _copy_model directly
+function test__copy_model()
+    # Test with standard JuMP Model
+    model = Model()
+    @variable(model, x >= 0)
+    @variable(model, y <= 10)
+    copied = DP._copy_model(model)
+    @test copied isa Model
+    @test num_variables(copied) == 0  # _copy_model creates empty model
+
+    # Test with GDPModel
+    gdp_model = GDPModel()
+    @variable(gdp_model, z)
+    copied_gdp = DP._copy_model(gdp_model)
+    @test copied_gdp isa Model
+    @test num_variables(copied_gdp) == 0
+end
+
+# Test VariableProperties struct and constructors
+function test_variable_properties()
+    # Test VariableProperties(vref::GenericVariableRef) - standard JuMP variable
+    model = GDPModel()
+    @variable(model, 0 <= x <= 10, start = 5)
+    props_x = DP.VariableProperties(x)
+    @test props_x.info.has_lb == true
+    @test props_x.info.lower_bound == 0
+    @test props_x.info.has_ub == true
+    @test props_x.info.upper_bound == 10
+    @test props_x.info.has_start == true
+    @test props_x.info.start == 5
+    @test props_x.name == "x"
+    @test props_x.variable_type === nothing
+
+    # Test with binary variable
+    @variable(model, y, Bin)
+    props_y = DP.VariableProperties(y)
+    @test props_y.info.binary == true
+    @test props_y.info.integer == false
+
+    # Test with integer variable
+    @variable(model, z, Int)
+    props_z = DP.VariableProperties(z)
+    @test props_z.info.binary == false
+    @test props_z.info.integer == true
+
+    # Test with fixed variable
+    @variable(model, w == 42)
+    props_w = DP.VariableProperties(w)
+    @test props_w.info.has_fix == true
+    @test props_w.info.fixed_value == 42
+
+    # Test VariableProperties(expr) - blank info constructor
+    expr = 2*x + 3*y
+    props_expr = DP.VariableProperties(expr)
+    @test props_expr.info.has_lb == false
+    @test props_expr.info.has_ub == false
+    @test props_expr.info.has_fix == false
+    @test props_expr.info.has_start == false
+    @test props_expr.info.binary == false
+    @test props_expr.info.integer == false
+    @test props_expr.name == ""
+end
+
+# Test _make_variable_object
+function test__make_variable_object()
+    model = GDPModel()
+    @variable(model, 0 <= x <= 10, start = 5)
+
+    # Create VariableProperties and then make variable object
+    props = DP.VariableProperties(x)
+    var_obj = DP._make_variable_object(props)
+    @test var_obj isa JuMP.ScalarVariable
+    @test var_obj.info.has_lb == true
+    @test var_obj.info.lower_bound == 0
+    @test var_obj.info.has_ub == true
+    @test var_obj.info.upper_bound == 10
+
+    # Test with blank properties (from expression)
+    props_blank = DP.VariableProperties(2*x)
+    var_obj_blank = DP._make_variable_object(props_blank)
+    @test var_obj_blank isa JuMP.ScalarVariable
+    @test var_obj_blank.info.has_lb == false
+    @test var_obj_blank.info.has_ub == false
+end
+
+# Test create_variable
+function test_create_variable()
+    model = GDPModel()
+    @variable(model, 0 <= x <= 10, start = 5)
+
+    # Create a new variable from properties
+    props = DP.VariableProperties(x)
+    new_var = DP.create_variable(model, props)
+    @test new_var isa VariableRef
+    @test has_lower_bound(new_var)
+    @test lower_bound(new_var) == 0
+    @test has_upper_bound(new_var)
+    @test upper_bound(new_var) == 10
+    @test start_value(new_var) == 5
+    @test name(new_var) == "x"
+
+    # Test with binary variable
+    @variable(model, y, Bin)
+    props_bin = DP.VariableProperties(y)
+    new_bin = DP.create_variable(model, props_bin)
+    @test is_binary(new_bin)
+
+    # Test with integer variable
+    @variable(model, z, Int)
+    props_int = DP.VariableProperties(z)
+    new_int = DP.create_variable(model, props_int)
+    @test is_integer(new_int)
+
+    # Test with fixed variable
+    @variable(model, w == 42)
+    props_fix = DP.VariableProperties(w)
+    new_fix = DP.create_variable(model, props_fix)
+    @test is_fixed(new_fix)
+    @test fix_value(new_fix) == 42
+end
+
+# Test variable_copy
+function test_variable_copy()
+    source_model = GDPModel()
+    @variable(source_model, 0 <= x <= 10, start = 5)
+    @variable(source_model, y, Bin)
+    @variable(source_model, z, Int)
+    @variable(source_model, w == 42)
+
+    target_model = GDPModel()
+
+    # Copy bounded variable
+    x_copy = DP.variable_copy(target_model, x)
+    @test x_copy isa VariableRef
+    @test owner_model(x_copy) === target_model
+    @test has_lower_bound(x_copy)
+    @test lower_bound(x_copy) == 0
+    @test has_upper_bound(x_copy)
+    @test upper_bound(x_copy) == 10
+    @test start_value(x_copy) == 5
+    @test name(x_copy) == "x"
+
+    # Copy binary variable
+    y_copy = DP.variable_copy(target_model, y)
+    @test is_binary(y_copy)
+    @test owner_model(y_copy) === target_model
+
+    # Copy integer variable
+    z_copy = DP.variable_copy(target_model, z)
+    @test is_integer(z_copy)
+    @test owner_model(z_copy) === target_model
+
+    # Copy fixed variable
+    w_copy = DP.variable_copy(target_model, w)
+    @test is_fixed(w_copy)
+    @test fix_value(w_copy) == 42
+    @test owner_model(w_copy) === target_model
+end
+
+# Test _create_submodel (combines _copy_model + variable_copy + constraint handling)
+function test__create_submodel()
+    model = GDPModel()
+    @variable(model, 0 <= x <= 10)
+    @variable(model, 0 <= y <= 5)
+    @variable(model, Y[1:2], Logical)
+    @constraint(model, con1, x + y <= 8, Disjunct(Y[1]))
+    @constraint(model, con2, x - y >= 2, Disjunct(Y[2]))
+    @disjunction(model, [Y[1], Y[2]])
+
+    mbm = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
+    constraints = Vector{DisjunctConstraintRef}(
+        DP._indicator_to_constraints(model)[Y[1]]
+    )
+
+    sub_model, var_map = DP._create_submodel(model, constraints, mbm)
+
+    # Check submodel was created
+    @test sub_model isa Model
+
+    # Check variable mapping exists
+    @test haskey(var_map, x)
+    @test haskey(var_map, y)
+
+    # Check mapped variables have correct bounds in submodel
+    @test has_lower_bound(var_map[x])
+    @test lower_bound(var_map[x]) == 0
+    @test has_upper_bound(var_map[x])
+    @test upper_bound(var_map[x]) == 10
+
+    @test has_lower_bound(var_map[y])
+    @test lower_bound(var_map[y]) == 0
+    @test has_upper_bound(var_map[y])
+    @test upper_bound(var_map[y]) == 5
+
+    # Check constraint was added to submodel
+    @test num_constraints(sub_model, AffExpr, MOI.LessThan{Float64}) == 1
+end
+
+# Test get_variable_info
+function test_get_variable_info()
+    model = GDPModel()
+    @variable(model, 0 <= x <= 10, start = 5)
+    @variable(model, y, Bin)
+    @variable(model, z == 42)
+
+    # Test bounded variable
+    info_x = DP.get_variable_info(x)
+    @test info_x.has_lb == true
+    @test info_x.lower_bound == 0
+    @test info_x.has_ub == true
+    @test info_x.upper_bound == 10
+    @test info_x.has_start == true
+    @test info_x.start == 5
+    @test info_x.binary == false
+    @test info_x.integer == false
+
+    # Test binary variable
+    info_y = DP.get_variable_info(y)
+    @test info_y.binary == true
+    @test info_y.integer == false
+
+    # Test fixed variable
+    info_z = DP.get_variable_info(z)
+    @test info_z.has_fix == true
+    @test info_z.fixed_value == 42
+
+    # Test with overridden kwargs
+    info_custom = DP.get_variable_info(x; has_lb = false, has_ub = false)
+    @test info_custom.has_lb == false
+    @test info_custom.has_ub == false
+end
+
 @testset "MBM" begin
+    test__copy_model()
+    test_variable_properties()
+    test__make_variable_object()
+    test_create_variable()
+    test_variable_copy()
+    test__create_submodel()
+    test_get_variable_info()
     test_mbm()
     test__replace_variables_in_constraint()
     test__constraint_to_objective()
