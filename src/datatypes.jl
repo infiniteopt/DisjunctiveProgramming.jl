@@ -388,15 +388,22 @@ end
 
 mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
     optimizer::O
-    M::Dict{LogicalVariableRef{M}, T}                        
-    default_M::T                            
-    conlvref::Vector{LogicalVariableRef{M}}                  
+    M::Dict{LogicalVariableRef{M}, Any}
+    default_M::T
+    conlvref::Vector{LogicalVariableRef{M}}
+    deactivated::Set{LogicalVariableRef{M}}
+    # Stored submodels: indicator => GDPSubmodel.
+    # Typed Any so extensions can store different types.
+    store::Dict{LogicalVariableRef{M}, Any}
 
     function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
-        new{O, T, M}(method.optimizer,
-            Dict{LogicalVariableRef{M}, T}(), 
+        new{O, T, M}(
+            method.optimizer,
+            Dict{LogicalVariableRef{M}, Any}(),
             method.default_M,
-            Vector{LogicalVariableRef{M}}()                               
+            Vector{LogicalVariableRef{M}}(),
+            Set{LogicalVariableRef{M}}(),
+            Dict{LogicalVariableRef{M}, Any}()
         )
     end
 end
@@ -444,21 +451,36 @@ A type for using the cutting planes approach for disjunctive constraints.
 method to use after cutting planes (default = `BigM()`).
 - `M_value::Float64`: Big-M value to use in the final reformulation (default = `1e9`).
 """
-struct cutting_planes{O} <: AbstractReformulationMethod
+struct cutting_planes{O, T} <: AbstractReformulationMethod
     optimizer::O;
     max_iter::Int
-    seperation_tolerance::Float64
+    seperation_tolerance::T
     final_reform_method::AbstractReformulationMethod
-    M_value::Float64
+    M_value::T
     function cutting_planes(
-        optimizer::O; 
-        max_iter::Int = 3, 
-        seperation_tolerance::Float64 = 1e-6, 
-        final_reform_method = BigM(), 
-        M_value::Float64 = 1e9
-    ) where {O}
-        new{O}(optimizer, max_iter, seperation_tolerance, final_reform_method, M_value)
+        optimizer::O;
+        max_iter::Int = 3,
+        seperation_tolerance::T = 1e-6,
+        final_reform_method = BigM(),
+        M_value::T = 1e9
+    ) where {O, T}
+        new{O, T}(optimizer, max_iter, seperation_tolerance, final_reform_method, M_value)
     end
+end
+
+################################################################################
+#                              GDP SUBMODEL
+################################################################################
+
+# Unified submodel wrapper for MBM and cutting planes.
+# Holds a flat JuMP model, ordered decision variables,
+# and a forward map (orig var → submodel vars).
+struct GDPSubmodel{M <: JuMP.AbstractModel,
+                   V <: JuMP.AbstractVariableRef,
+                   W <: JuMP.AbstractVariableRef}
+    model::M
+    dec_vars::Vector{V}
+    fwd::Dict{V, Vector{W}}
 end
 
 """
@@ -635,9 +657,9 @@ end
 """
     VariableProperties(expr)::VariableProperties
 
-Creates a `VariableProperties` object with blank variable info (no bounds, not fixed, 
-not binary/integer) from an expression. The `expr` argument is provided for 
-extensions to infer additional properties (e.g., parameter dependencies in InfiniteOpt).
+Creates a `VariableProperties` object with blank variable info (no bounds, not fixed,
+not binary/integer) from an expression. The `expr` argument is provided for
+extensions to infer additional properties.
 
 ## Arguments
 - `expr`: Expression for extensions to extract metadata from
