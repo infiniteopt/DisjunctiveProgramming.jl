@@ -7,7 +7,7 @@ function test_linear_gdp_example(m, use_complements = false)
         @variable(m, Y2, Logical, logical_complement = Y1)
         Y = [Y1, Y2]
     else
-        @variable(m, Y[1:2], Logical)
+        @variable(m, Y[1:3], Logical)
     end
     @variable(m, W[1:2], Logical)
     @objective(m, Max, sum(x))
@@ -16,7 +16,13 @@ function test_linear_gdp_example(m, use_complements = false)
     @constraint(m, w2[i=1:2], [2,4][i] ≤ x[i] ≤ [3,5][i], Disjunct(W[2]))
     @constraint(m, y2[i=1:2], [8,1][i] ≤ x[i] ≤ [9,2][i], Disjunct(Y[2]))
     @disjunction(m, inner, [W[1], W[2]], Disjunct(Y[1]))
-    @disjunction(m, outer, [Y[1], Y[2]])
+    if use_complements
+        @disjunction(m, outer, [Y[1], Y[2]])
+    else
+        #Infeasible disjunct
+        @constraint(m, y3[i=1:2], x[i] ≤ [-44,44][i], Disjunct(Y[3]))
+        @disjunction(m, outer, [Y[1], Y[2], Y[3]])
+    end
 
     @test optimize!(m, gdp_method = BigM()) isa Nothing
     @test termination_status(m) == MOI.OPTIMAL
@@ -98,6 +104,8 @@ function test_quadratic_gdp_example(use_complements = false) #psplit does not wo
     @objective(m, Max, sum(x))
     
     @constraint(m, y1_quad, x[1]^2 + x[2]^2 ≤ 16, Disjunct(Y[1]))
+    # This constraint is always satisfied
+    @constraint(m, y1_global, x[1] + x[2] ≤ 20, Disjunct(Y[1]))
     @constraint(m, w1[i=1:2], [1, 2][i] ≤ x[i] ≤ [3, 4][i], Disjunct(W[1]))
     @constraint(m, w1_quad, x[1]^2 ≥ 2, Disjunct(W[1]))
     

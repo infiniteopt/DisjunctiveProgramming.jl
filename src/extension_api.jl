@@ -1,8 +1,8 @@
 """
     InfiniteGDPModel(args...; kwargs...)
 
-Creates an `InfiniteOpt.InfiniteModel` that is compatible with the 
-capabiltiies provided by DisjunctiveProgramming.jl. This requires 
+Creates an `InfiniteOpt.InfiniteModel` that is compatible with the
+capabiltiies provided by DisjunctiveProgramming.jl. This requires
 that InfiniteOpt be imported first.
 
 **Example**
@@ -18,9 +18,9 @@ function InfiniteGDPModel end
 """
     InfiniteLogical(prefs...)
 
-Allows users to create infinite logical variables. This is a tag 
-for the `@variable` macro that is a combination of `InfiniteOpt.Infinite` 
-and `DisjunctiveProgramming.Logical`. This requires that InfiniteOpt be 
+Allows users to create infinite logical variables. This is a tag
+for the `@variable` macro that is a combination of `InfiniteOpt.Infinite`
+and `DisjunctiveProgramming.Logical`. This requires that InfiniteOpt be
 first imported.
 
 **Example**
