@@ -283,16 +283,16 @@ function _raw_M(
     M_vals = typeof(method.default_M)[]
     for obj_expr in objectives
         JuMP.@objective(sub.model, Max, obj_expr)
+        # Clear start values before each solve to prevent NaN
+        # residue from a previous non-feasible solve
+        for v in JuMP.all_variables(sub.model)
+            JuMP.set_start_value(v, nothing)
+        end
         JuMP.optimize!(sub.model)
         if JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
             return nothing
         elseif !JuMP.is_solved_and_feasible(sub.model)
             push!(M_vals, method.default_M)
-            # Clear NaN start values from non-feasible solve
-            # so the next objective doesn't inherit them
-            for v in JuMP.all_variables(sub.model)
-                JuMP.set_start_value(v, nothing)
-            end
         else
             push!(M_vals, max(
                 JuMP.objective_value(sub.model),
