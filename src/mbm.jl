@@ -525,14 +525,6 @@ function _replace_variables_in_constraint(
     return new_aff
 end
 
-# Dispatch for quadratic term addition when var_map values may be Numbers
-# (parameter functions evaluated at supports). JuMP's 3-arg
-# add_to_expression!(quad, c, ra, rb) doesn't support Number×Number.
-_add_quad_term(q, c, ra::Number, rb::Number) = q.aff.constant += c * ra * rb
-_add_quad_term(q, c, ra::Number, rb) = JuMP.add_to_expression!(q.aff, c * ra, rb)
-_add_quad_term(q, c, ra, rb::Number) = JuMP.add_to_expression!(q.aff, c * rb, ra)
-_add_quad_term(q, c, ra, rb) = JuMP.add_to_expression!(q, c, ra, rb)
-
 function _replace_variables_in_constraint(
     fun::T, var_map::AbstractDict
     ) where {T <: JuMP.GenericQuadExpr}
@@ -540,7 +532,8 @@ function _replace_variables_in_constraint(
     W = _var_ref_type(typeof(fun.aff), var_map)
     new_quad = zero(JuMP.GenericQuadExpr{C, W})
     for (vars, coef) in fun.terms
-        _add_quad_term(new_quad, coef, var_map[vars.a], var_map[vars.b])
+        JuMP.add_to_expression!(new_quad,
+            coef * var_map[vars.a] * var_map[vars.b])
     end
     new_aff = _replace_variables_in_constraint(fun.aff, var_map)
     JuMP.add_to_expression!(new_quad, new_aff)
