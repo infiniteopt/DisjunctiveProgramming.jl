@@ -9,7 +9,7 @@ _is_all_zeros(::Any) = false
 ################################################################################
 #               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
 ################################################################################
-
+#Reformulates the disjunction using multiple big-M values
 function reformulate_disjunction(
     model::JuMP.AbstractModel,
     disj::Disjunction,

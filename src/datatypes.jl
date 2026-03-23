@@ -439,17 +439,17 @@ mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationM
 end
 
 """
-    cutting_planes{O} <: AbstractReformulationMethod
+    cutting_planes{O,T} <: AbstractReformulationMethod
 
 A type for using the cutting planes approach for disjunctive constraints.
 
 **Fields**
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
 - `max_iter::Int`: Number of iterations (default = `3`).
-- `seperation_tolerance::Float64`: Tolerance for the separation problem (default = `1e-6`).
+- `seperation_tolerance::T`: Tolerance for the separation problem (default = `1e-6`).
 - `final_reform_method::AbstractReformulationMethod`: Final reformulation 
 method to use after cutting planes (default = `BigM()`).
-- `M_value::Float64`: Big-M value to use in the final reformulation (default = `1e9`).
+- `M_value::T`: Big-M value to use in the final reformulation (default = `1e9`).
 """
 struct cutting_planes{O, T} <: AbstractReformulationMethod
     optimizer::O;
