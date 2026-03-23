@@ -424,8 +424,7 @@ function _interrogate_variables(interrogator::Function, nlp::JuMP.GenericNonline
     for arg in nlp.args
         _interrogate_variables(interrogator, arg)
     end
-    # TODO avoid recursion. See InfiniteOpt.jl for alternate method that avoids stackoverflow errors with deeply nested expressions:
-    # https://github.com/infiniteopt/InfiniteOpt.jl/blob/cb6dd6ae40fe0144b1dd75da0739ea6e305d5357/src/expressions.jl#L520-L534
+
     return
 end
 

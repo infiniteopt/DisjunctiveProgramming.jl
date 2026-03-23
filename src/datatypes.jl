@@ -472,9 +472,22 @@ end
 #                              GDP SUBMODEL
 ################################################################################
 
-# Unified submodel wrapper for MBM and cutting planes.
-# Holds a flat JuMP model, ordered decision variables,
-# and a forward map (orig var → submodel vars).
+"""
+    GDPSubmodel{M, V, W}
+
+A unified submodel wrapper used by MBM and cutting plane
+reformulations. It encapsulates a flat JuMP optimization
+submodel built from a single disjunct's feasible region,
+along with mappings back to the original model's variables.
+
+## Fields
+- `model::M`: The JuMP submodel representing a disjunct's
+   feasible region (constraints and variable bounds).
+- `dec_vars::Vector{V}`: Ordered decision variables in
+   the submodel, matching the original model's ordering.
+- `fwd::Dict{V, Vector{W}}`: Forward map from original
+   model variables to their submodel counterparts.
+"""
 struct GDPSubmodel{M <: JuMP.AbstractModel,
                    V <: JuMP.AbstractVariableRef,
                    W <: JuMP.AbstractVariableRef}

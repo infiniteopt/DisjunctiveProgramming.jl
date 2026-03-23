@@ -9,10 +9,10 @@ _is_all_zeros(::Any) = false
 ################################################################################
 #               CONSTRAINT, DISJUNCTION, DISJUNCT REFORMULATION
 ################################################################################
-# Reformulates the disjunction using multiple big-M values per constraint
+
 function reformulate_disjunction(
     model::JuMP.AbstractModel,
-    disj::Disjunction, 
+    disj::Disjunction,
     method::MBM
     )
     mbm = _MBM(method, model)
@@ -251,9 +251,14 @@ end
 #                     MULTIPLE BIG-M REFORMULATION
 ################################################################################
 
-# Prepare flat objectives for _raw_M. Returns a vector of objective expressions
-# ready to maximize. Base: single flat constraint via fwd[v][1].
-function _prepare_objectives(
+"""
+    prepare_objectives(model, obj::ScalarConstraint, sub::GDPSubmodel)
+
+Convert a constraint into objective expressions for M-value maximization.
+Returns a vector of JuMP expressions to pass to `_raw_M`. The base method
+produces a single-element vector by mapping variables through `sub.fwd`.
+"""
+function prepare_objectives(
     ::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
@@ -263,7 +268,7 @@ function _prepare_objectives(
     return [expr]
 end
 
-function _prepare_objectives(
+function prepare_objectives(
     ::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
@@ -303,8 +308,15 @@ function _raw_M(
     return M_vals
 end
 
-# Condense flat per-support values to final form. Base: return
-# scalar from single-element vector. Extensions may override.
+"""
+    condense_values(model, vals::AbstractVector)
+
+Reduce a vector of raw M values from `_raw_M` to the final form used
+during constraint reformulation. The base method returns the single
+element from a length-1 vector. Extensions (e.g., InfiniteOpt) override
+to aggregate across multiple support points (e.g., interpolating K
+per-support M values into a parameter function).
+"""
 function condense_values(
     ::JuMP.AbstractModel,
     vals::AbstractVector
@@ -321,7 +333,7 @@ function _maximize_M(
     method::_MBM
     ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub = _get_submodel(model, constraints, method)
-    objectives = _prepare_objectives(model, objective, sub)
+    objectives = prepare_objectives(model, objective, sub)
     raw = _raw_M(sub, objectives, method)
     raw === nothing && return nothing
     return condense_values(model, raw)
@@ -353,8 +365,8 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = _raw_M(sub,_prepare_objectives(model, ge_obj, sub),method)
-    raw_upper = _raw_M(sub,_prepare_objectives(model, le_obj, sub),method)
+    raw_lower = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
+    raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [condense_values(model, raw_lower),condense_values(model, raw_upper)]
@@ -373,8 +385,8 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = _raw_M(sub,_prepare_objectives(model, ge_obj, sub),method)
-    raw_upper = _raw_M(sub,_prepare_objectives(model, le_obj, sub),method)
+    raw_lower = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
+    raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [condense_values(model, raw_lower),condense_values(model, raw_upper)]
@@ -393,7 +405,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = _raw_M(sub,_prepare_objectives(model, le_obj, sub),method)
+        raw = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
         raw === nothing && return nothing
         push!(results, condense_values(model, raw))
     end
@@ -413,7 +425,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         ge_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.GreaterThan(zero(val_type)))
-        raw = _raw_M(sub,_prepare_objectives(model, ge_obj, sub),method)
+        raw = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
         raw === nothing && return nothing
         push!(results, condense_values(model, raw))
     end
@@ -435,8 +447,8 @@ function _maximize_M(
             objective.func[i], MOI.GreaterThan(zero(val_type)))
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw_ge = _raw_M(sub,_prepare_objectives(model, ge_obj, sub),method)
-        raw_le = _raw_M(sub,_prepare_objectives(model, le_obj, sub),method)
+        raw_ge = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
+        raw_le = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
         (raw_ge === nothing || raw_le === nothing) &&
             return nothing
         push!(results, condense_values(model, max.(raw_ge, raw_le)))
@@ -452,8 +464,14 @@ function _maximize_M(
           "has not been implemented for MBM subproblems\nF: $(F)")
 end
 
-# Create a submodel for a disjunct's feasible region. Returns
-# GDPSubmodel. Extensions may override for custom construction.
+"""
+    create_submodel(model, constraints, method::_MBM)
+
+Build a `GDPSubmodel` representing a disjunct's feasible region for
+MBM subproblem solves. Copies the model's decision variables and adds
+the given disjunct constraints. Submodels are cached in `method.store`
+by indicator.
+"""
 function create_submodel(
     model::JuMP.AbstractModel,
     constraints::Vector{<:DisjunctConstraintRef},
