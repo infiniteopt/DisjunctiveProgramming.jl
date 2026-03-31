@@ -295,15 +295,15 @@ function _raw_M(
     for obj_expr in objectives
         JuMP.@objective(sub.model, Max, obj_expr)
         JuMP.optimize!(sub.model)
-        if JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
-            return nothing
-        elseif !JuMP.is_solved_and_feasible(sub.model)
-            push!(M_vals, method.default_M)
-        else
+        if JuMP.is_solved_and_feasible(sub.model)
             push!(M_vals, max(
                 JuMP.objective_value(sub.model),
                 zero(method.default_M))
                 )
+        elseif JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
+            return nothing
+        else
+            push!(M_vals, method.default_M)
         end
     end
     return M_vals
@@ -349,7 +349,7 @@ function _get_submodel(
     indicator = _constraint_to_indicator(
         model)[first(constraints)]
     if !haskey(method.model_cache, indicator)
-        method.model_cache[indicator] = create_submodel(
+        method.model_cache[indicator] = copy_model_with_constraints(
             model, constraints, method)
     end
     return method.model_cache[indicator]
@@ -471,14 +471,14 @@ function _maximize_M(
 end
 
 """
-    create_submodel(model, constraints, method::_MBM)
+    copy_model_with_constraints(model, constraints, method)
 
-Build a `GDPSubmodel` representing a disjunct's feasible region for
-MBM subproblem solves. Copies the model's decision variables and adds
-the given disjunct constraints. Submodels are cached in `method.model_cache`
-by indicator.
+Build a `GDPSubmodel` with disjunct constraints passed.
+This builds a model seperate from the original model with copied constraints 
+and variables, and maps between the original model's variables and the 
+submodel's variables.
 """
-function create_submodel(
+function copy_model_with_constraints(
     model::JuMP.AbstractModel,
     constraints::Vector{<:DisjunctConstraintRef},
     method::_MBM

@@ -132,14 +132,14 @@ function test_raw_M()
         [Y[1], Y[2], Y[3], Y[4], Y[5]])
     mbm = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    sub = DP.create_submodel(model,
+    sub = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con2], mbm)
     objs = DP.prepare_objectives(model,
         constraint_object(con), sub)
     raw = DP._raw_M(sub, objs, mbm)
     @test DP.aggregate_M_values(model, raw) == 0.0
     set_upper_bound(x, 1)
-    sub2 = DP.create_submodel(model,
+    sub2 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm)
     objs2 = DP.prepare_objectives(model,
         constraint_object(con2), sub2)
@@ -156,7 +156,7 @@ function test_raw_M()
     JuMP.fix(y, 5; force=true)
     mbm2 = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    sub3 = DP.create_submodel(model,
+    sub3 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm2)
     objs4 = DP.prepare_objectives(model,
         constraint_object(con2), sub3)
@@ -166,7 +166,7 @@ function test_raw_M()
     delete_lower_bound(x)
     mbm3 = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    sub4 = DP.create_submodel(model,
+    sub4 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con2], mbm3)
     objs5 = DP.prepare_objectives(model,
         constraint_object(con2), sub4)
@@ -176,7 +176,7 @@ function test_raw_M()
     set_upper_bound(x, 1)
     mbm4 = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    sub5 = DP.create_submodel(model,
+    sub5 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[truly_infeasible],
         mbm4)
     objs6 = DP.prepare_objectives(model,
@@ -193,7 +193,7 @@ function test_raw_M()
     @constraint(model_ub, ub_con2, xu >= 5, Disjunct(Yu[2]))
     @disjunction(model_ub, [Yu[1], Yu[2]])
     mbm_ub = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
-    sub_ub = DP.create_submodel(model_ub,
+    sub_ub = DP.copy_model_with_constraints(model_ub,
         DisjunctConstraintRef[ub_con1], mbm_ub)
     objs_ub = DP.prepare_objectives(model_ub,
         constraint_object(ub_con2), sub_ub)
@@ -733,8 +733,8 @@ function test_variable_copy()
     @test owner_model(w_copy) === target_model
 end
 
-# Test _create_submodel (combines _copy_model + variable_copy + constraint handling)
-function test__create_submodel()
+# Test _copy_model_with_constraints (combines _copy_model + variable_copy + constraint handling)
+function test__copy_model_with_constraints()
     model = GDPModel()
     @variable(model, 0 <= x <= 10)
     @variable(model, 0 <= y <= 5)
@@ -748,7 +748,7 @@ function test__create_submodel()
         DP._indicator_to_constraints(model)[Y[1]]
     )
 
-    sub = DP.create_submodel(model, constraints, mbm)
+    sub = DP.copy_model_with_constraints(model, constraints, mbm)
 
     # Check submodel struct
     @test sub isa DP.GDPSubmodel
@@ -819,7 +819,7 @@ end
     test__make_variable_object()
     test_create_variable()
     test_variable_copy()
-    test__create_submodel()
+    test__copy_model_with_constraints()
     test_get_variable_info()
     test_mbm()
     test__var_ref_type_numeric_map()
