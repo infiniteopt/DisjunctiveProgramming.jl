@@ -46,7 +46,10 @@ function _reformulate_disjunct(
     !haskey(_indicator_to_constraints(model), lvref) && return
     # Filter out deactivated disjuncts from binary variable mapping in
     # the event we've identified some infeasible disjuncts already
-    active_subproblem_indicators = filter(d -> !(d in method.deactivated), method.subproblem_indicators)
+    active_subproblem_indicators = filter(
+        d -> !(d in method.deactivated), 
+        method.subproblem_indicators
+        )
     bconref = Dict(d => binary_variable(d) for d in active_subproblem_indicators)
 
     constraints = _indicator_to_constraints(model)[lvref]
@@ -83,7 +86,8 @@ function _reformulate_disjunct(
         # Check if all M values are zero for that constraint. If so, it
         # should be enforced globally (no reformulation with binaries).
         if !isempty(method.M) && all(
-               _is_all_zeros(method.M[d]) for d in keys(method.M))
+               _is_all_zeros(method.M[d]) for d in keys(method.M)
+               )
             push!(ref_cons, con)
         else
             append!(ref_cons,
@@ -290,11 +294,6 @@ function _raw_M(
     M_vals = typeof(method.default_M)[]
     for obj_expr in objectives
         JuMP.@objective(sub.model, Max, obj_expr)
-        # Clear start values before each solve to prevent NaN
-        # residue from a previous non-feasible solve
-        for v in JuMP.all_variables(sub.model)
-            JuMP.set_start_value(v, nothing)
-        end
         JuMP.optimize!(sub.model)
         if JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
             return nothing
@@ -367,11 +366,13 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
-    raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
+    raw_lower = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
+    raw_upper = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [aggregate_M_values(model, raw_lower),aggregate_M_values(model, raw_upper)]
+    return [aggregate_M_values(model, raw_lower), 
+    aggregate_M_values(model, raw_upper)
+    ]
 end
 
 # Interval: solve both lower and upper bound directions, finalize each.
@@ -387,11 +388,14 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
-    raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
+    raw_lower = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
+    raw_upper = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [aggregate_M_values(model, raw_lower),aggregate_M_values(model, raw_upper)]
+    return [
+        aggregate_M_values(model, raw_lower), 
+        aggregate_M_values(model, raw_upper)
+        ]
 end
 
 # Nonpositives: per-row LessThan solves for each dimension of the vector.
@@ -407,7 +411,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
+        raw = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
         raw === nothing && return nothing
         push!(results, aggregate_M_values(model, raw))
     end
@@ -427,7 +431,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         ge_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.GreaterThan(zero(val_type)))
-        raw = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
+        raw = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
         raw === nothing && return nothing
         push!(results, aggregate_M_values(model, raw))
     end
@@ -449,8 +453,8 @@ function _maximize_M(
             objective.func[i], MOI.GreaterThan(zero(val_type)))
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw_ge = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
-        raw_le = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
+        raw_ge = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
+        raw_le = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
         (raw_ge === nothing || raw_le === nothing) &&
             return nothing
         push!(results, aggregate_M_values(model, max.(raw_ge, raw_le)))
