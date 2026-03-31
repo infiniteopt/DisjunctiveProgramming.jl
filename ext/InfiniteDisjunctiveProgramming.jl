@@ -178,8 +178,8 @@ function DP.reformulate_model(::InfiniteOpt.InfiniteModel, ::DP.MBM)
           "Please use `BigM`, `Hull`, `Indicator`, or `PSplit` instead.")
 end
 
-function DP.reformulate_model(::InfiniteOpt.InfiniteModel, ::DP.cutting_planes)
-    error("The `cutting_planes` method is not supported for `InfiniteModel`." *
+function DP.reformulate_model(::InfiniteOpt.InfiniteModel, ::DP.CuttingPlanes)
+    error("The `CuttingPlanes` method is not supported for `InfiniteModel`." *
           "Please use `BigM`, `Hull`, `Indicator`, or `PSplit` instead.")
 end
 

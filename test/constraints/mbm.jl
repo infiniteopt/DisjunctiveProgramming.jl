@@ -137,21 +137,21 @@ function test_raw_M()
     objs = DP.prepare_objectives(model,
         constraint_object(con), sub)
     raw = DP._raw_M(sub, objs, mbm)
-    @test DP.condense_values(model, raw) == 0.0
+    @test DP.aggregate_M_values(model, raw) == 0.0
     set_upper_bound(x, 1)
     sub2 = DP.create_submodel(model,
         DisjunctConstraintRef[con], mbm)
     objs2 = DP.prepare_objectives(model,
         constraint_object(con2), sub2)
     raw = DP._raw_M(sub2, objs2, mbm)
-    @test DP.condense_values(model, raw) == 15
+    @test DP.aggregate_M_values(model, raw) == 15
     set_integer(y)
     @constraint(model, con3, y*x == 15,
         Disjunct(Y[1]))
     objs3 = DP.prepare_objectives(model,
         constraint_object(con2), sub2)
     raw = DP._raw_M(sub2, objs3, mbm)
-    @test DP.condense_values(model, raw) == 15
+    @test DP.aggregate_M_values(model, raw) == 15
     # Fresh _MBM after changing bounds
     JuMP.fix(y, 5; force=true)
     mbm2 = DP._MBM(
@@ -161,7 +161,7 @@ function test_raw_M()
     objs4 = DP.prepare_objectives(model,
         constraint_object(con2), sub3)
     raw = DP._raw_M(sub3, objs4, mbm2)
-    @test DP.condense_values(model, raw) == 10
+    @test DP.aggregate_M_values(model, raw) == 10
     # Infeasible region → nothing
     delete_lower_bound(x)
     mbm3 = DP._MBM(

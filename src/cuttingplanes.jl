@@ -1,6 +1,6 @@
 function reformulate_model(
     model::JuMP.AbstractModel, 
-    method::cutting_planes
+    method::CuttingPlanes
     ) 
     _clear_reformulations(model)
     var_type = JuMP.variable_ref_type(model)
@@ -39,7 +39,7 @@ function reformulate_model(
         rBM_sol = _solve_rBM(rBM)
         SEP_sol = _solve_SEP(SEP, rBM, rBM_sol, SEP_to_rBM_map, rBM_to_SEP_map)
         sep_obj = objective_value(SEP)
-        _cutting_planes(model, rBM, main_to_rBM_map, 
+        _CuttingPlanes(model, rBM, main_to_rBM_map, 
             main_to_SEP_map, rBM_sol, SEP_sol
         )
         i += 1
@@ -90,7 +90,7 @@ function _solve_SEP(
     return sol
 end
 
-function _cutting_planes(
+function _CuttingPlanes(
     model::M,
     rBM::M,
     main_to_rBM_map::Dict{<:JuMP.AbstractVariableRef,<:JuMP.AbstractVariableRef},
@@ -123,7 +123,7 @@ end
 #                              ERROR MESSAGES
 ################################################################################
 
-function reformulate_model(::M, ::cutting_planes) where {M}
+function reformulate_model(::M, ::CuttingPlanes) where {M}
     error("reformulate_model not implemented for model type `$(M)`.")
 end
 
@@ -139,8 +139,8 @@ function _solve_SEP(::M, ::N, ::H, ::S, ::R) where {M, N, H, S, R}
           rBM_to_SEP_map: `$(R)`.")
 end
 
-function _cutting_planes(::M, ::N, ::H, ::S, ::R, ::T) where {M, N, H, S, R, T}
-    error("_cutting_planes not implemented for argument types: \n
+function _CuttingPlanes(::M, ::N, ::H, ::S, ::R, ::T) where {M, N, H, S, R, T}
+    error("_CuttingPlanes not implemented for argument types: \n
           model: `$(M)`, rBM: `$(N)`,\n
           main_to_rBM_map: `$(H)`, main_to_SEP_map: 
           `$(S)`,\n

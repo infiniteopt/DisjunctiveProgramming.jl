@@ -19,7 +19,7 @@ function reformulate_disjunction(
     disjunct_cons = Dict{LogicalVariableRef, Vector{JuMP.AbstractConstraint}}()
     for d in disj.indicators
         d in mbm.deactivated && continue
-        mbm.conlvref = filter(
+        mbm.subproblem_indicators = filter(
             x -> x != d && !(x in mbm.deactivated), disj.indicators)
         disjunct_cons[d] = Vector{JuMP.AbstractConstraint}()
         _reformulate_disjunct(model, disjunct_cons[d], d, mbm)
@@ -40,13 +40,14 @@ end
 function _reformulate_disjunct(
     model::JuMP.AbstractModel,
     ref_cons::Vector{JuMP.AbstractConstraint},
-    lvref::LogicalVariableRef, method::_MBM
+    lvref::LogicalVariableRef, 
+    method::_MBM
     )
     !haskey(_indicator_to_constraints(model), lvref) && return
     # Filter out deactivated disjuncts from binary variable mapping in
     # the event we've identified some infeasible disjuncts already
-    active_conlvref = filter(d -> !(d in method.deactivated), method.conlvref)
-    bconref = Dict(d => binary_variable(d) for d in active_conlvref)
+    active_subproblem_indicators = filter(d -> !(d in method.deactivated), method.subproblem_indicators)
+    bconref = Dict(d => binary_variable(d) for d in active_subproblem_indicators)
 
     constraints = _indicator_to_constraints(model)[lvref]
     filtered_constraints = [
@@ -56,7 +57,7 @@ function _reformulate_disjunct(
     for cref in filtered_constraints
         empty!(method.M)
 
-        for d in method.conlvref
+        for d in method.subproblem_indicators
             # Skip already-deactivated disjuncts
             d in method.deactivated && continue
 
@@ -93,7 +94,8 @@ function _reformulate_disjunct(
 end
 
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel, con::Disjunction,
+    model::JuMP.AbstractModel, 
+    con::Disjunction,
     bconref::Union{
         Dict{<:LogicalVariableRef, <:JuMP.AbstractVariableRef},
         Dict{<:LogicalVariableRef, <:JuMP.GenericAffExpr}
@@ -309,7 +311,7 @@ function _raw_M(
 end
 
 """
-    condense_values(model, vals::AbstractVector)
+    aggregate_M_values(model, vals::AbstractVector)
 
 Reduce a vector of raw M values from `_raw_M` to the final form used
 during constraint reformulation. The base method returns the single
@@ -317,11 +319,11 @@ element from a length-1 vector. Extensions (e.g., InfiniteOpt) override
 to aggregate across multiple support points (e.g., interpolating K
 per-support M values into a parameter function).
 """
-function condense_values(
+function aggregate_M_values(
     ::JuMP.AbstractModel,
     vals::AbstractVector
     )
-    return vals[1]
+    return only(vals)
 end
 
 # Dispatch over constraint types to compute M values. Scalar
@@ -336,7 +338,7 @@ function _maximize_M(
     objectives = prepare_objectives(model, objective, sub)
     raw = _raw_M(sub, objectives, method)
     raw === nothing && return nothing
-    return condense_values(model, raw)
+    return aggregate_M_values(model, raw)
 end
 
 # Helper: get or create the submodel for a set of constraints.
@@ -347,11 +349,11 @@ function _get_submodel(
     )
     indicator = _constraint_to_indicator(
         model)[first(constraints)]
-    if !haskey(method.store, indicator)
-        method.store[indicator] = create_submodel(
+    if !haskey(method.model_cache, indicator)
+        method.model_cache[indicator] = create_submodel(
             model, constraints, method)
     end
-    return method.store[indicator]
+    return method.model_cache[indicator]
 end
 
 # EqualTo: solve both GreaterThan and LessThan directions, finalize each.
@@ -369,7 +371,7 @@ function _maximize_M(
     raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [condense_values(model, raw_lower),condense_values(model, raw_upper)]
+    return [aggregate_M_values(model, raw_lower),aggregate_M_values(model, raw_upper)]
 end
 
 # Interval: solve both lower and upper bound directions, finalize each.
@@ -389,7 +391,7 @@ function _maximize_M(
     raw_upper = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [condense_values(model, raw_lower),condense_values(model, raw_upper)]
+    return [aggregate_M_values(model, raw_lower),aggregate_M_values(model, raw_upper)]
 end
 
 # Nonpositives: per-row LessThan solves for each dimension of the vector.
@@ -407,7 +409,7 @@ function _maximize_M(
             objective.func[i], MOI.LessThan(zero(val_type)))
         raw = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
         raw === nothing && return nothing
-        push!(results, condense_values(model, raw))
+        push!(results, aggregate_M_values(model, raw))
     end
     return results
 end
@@ -427,7 +429,7 @@ function _maximize_M(
             objective.func[i], MOI.GreaterThan(zero(val_type)))
         raw = _raw_M(sub,prepare_objectives(model, ge_obj, sub),method)
         raw === nothing && return nothing
-        push!(results, condense_values(model, raw))
+        push!(results, aggregate_M_values(model, raw))
     end
     return results
 end
@@ -451,7 +453,7 @@ function _maximize_M(
         raw_le = _raw_M(sub,prepare_objectives(model, le_obj, sub),method)
         (raw_ge === nothing || raw_le === nothing) &&
             return nothing
-        push!(results, condense_values(model, max.(raw_ge, raw_le)))
+        push!(results, aggregate_M_values(model, max.(raw_ge, raw_le)))
     end
     return results
 end
@@ -469,7 +471,7 @@ end
 
 Build a `GDPSubmodel` representing a disjunct's feasible region for
 MBM subproblem solves. Copies the model's decision variables and adds
-the given disjunct constraints. Submodels are cached in `method.store`
+the given disjunct constraints. Submodels are cached in `method.model_cache`
 by indicator.
 """
 function create_submodel(

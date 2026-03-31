@@ -390,11 +390,11 @@ mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMetho
     optimizer::O
     M::Dict{LogicalVariableRef{M}, Any}
     default_M::T
-    conlvref::Vector{LogicalVariableRef{M}}
+    subproblem_indicators::Vector{LogicalVariableRef{M}}
     deactivated::Set{LogicalVariableRef{M}}
-    # Stored submodels: indicator => GDPSubmodel.
+    # Cached submodels: indicator => GDPSubmodel.
     # Typed Any so extensions can store different types.
-    store::Dict{LogicalVariableRef{M}, Any}
+    model_cache::Dict{LogicalVariableRef{M}, Any}
 
     function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
         new{O, T, M}(
@@ -439,7 +439,7 @@ mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationM
 end
 
 """
-    cutting_planes{O,T} <: AbstractReformulationMethod
+    CuttingPlanes{O,T} <: AbstractReformulationMethod
 
 A type for using the cutting planes approach for disjunctive constraints.
 
@@ -451,13 +451,13 @@ A type for using the cutting planes approach for disjunctive constraints.
 method to use after cutting planes (default = `BigM()`).
 - `M_value::T`: Big-M value to use in the final reformulation (default = `1e9`).
 """
-struct cutting_planes{O, T} <: AbstractReformulationMethod
+struct CuttingPlanes{O, T} <: AbstractReformulationMethod
     optimizer::O;
     max_iter::Int
     seperation_tolerance::T
     final_reform_method::AbstractReformulationMethod
     M_value::T
-    function cutting_planes(
+    function CuttingPlanes(
         optimizer::O;
         max_iter::Int = 3,
         seperation_tolerance::T = 1e-6,
