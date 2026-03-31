@@ -16,21 +16,11 @@ function reformulate_disjunction(
     method::MBM
     )
     mbm = _MBM(method, model)
-    disjunct_cons = Dict{LogicalVariableRef, Vector{JuMP.AbstractConstraint}}()
-    for d in disj.indicators
-        d in mbm.deactivated && continue
-        mbm.subproblem_indicators = filter(
-            x -> x != d && !(x in mbm.deactivated), disj.indicators)
-        disjunct_cons[d] = Vector{JuMP.AbstractConstraint}()
-        _reformulate_disjunct(model, disjunct_cons[d], d, mbm)
-    end
-    # Collect constraints from non-deactivated disjuncts. It needs to be
-    # in a separate loop because disjuncts are only deactivated by looking
-    # at reforming other disjuncts (subproblem infeasibility).
     ref_cons = Vector{JuMP.AbstractConstraint}()
     for d in disj.indicators
-        d in mbm.deactivated && continue
-        haskey(disjunct_cons, d) && append!(ref_cons, disjunct_cons[d])
+        mbm.subproblem_indicators = filter(
+            x -> x != d, disj.indicators)
+        _reformulate_disjunct(model, ref_cons, d, mbm)
     end
     return ref_cons
 end
@@ -44,13 +34,8 @@ function _reformulate_disjunct(
     method::_MBM
     )
     !haskey(_indicator_to_constraints(model), lvref) && return
-    # Filter out deactivated disjuncts from binary variable mapping in
-    # the event we've identified some infeasible disjuncts already
-    active_subproblem_indicators = filter(
-        d -> !(d in method.deactivated), 
-        method.subproblem_indicators
-        )
-    bconref = Dict(d => binary_variable(d) for d in active_subproblem_indicators)
+    bconref = Dict(
+        d => binary_variable(d) for d in method.subproblem_indicators)
 
     constraints = _indicator_to_constraints(model)[lvref]
     filtered_constraints = [
@@ -61,37 +46,33 @@ function _reformulate_disjunct(
         empty!(method.M)
 
         for d in method.subproblem_indicators
-            # Skip already-deactivated disjuncts
-            d in method.deactivated && continue
-
             d_constraints = _indicator_to_constraints(model)[d]
             disjunct_constraints = [
                 c for c in d_constraints if c isa DisjunctConstraintRef]
             if !isempty(disjunct_constraints)
-                M_result = _maximize_M(model, JuMP.constraint_object(cref),
+                M_result = _maximize_M(model,
+                    JuMP.constraint_object(cref),
                     disjunct_constraints, method)
-                # Check for infeasibility: disjunct d
-                # has empty feasible region
                 if M_result === nothing
-                    push!(method.deactivated, d)
-                    @warn "Disjunct $(d) is infeasible, deactivating."
-                    delete!(bconref, d)
-                else
-                    method.M[d] = M_result
+                    error("Disjunct $(d) has an infeasible feasible region. 
+                        Check the disjunct constraints and variable bounds."
+                        )
                 end
+                method.M[d] = M_result
             end
         end
 
         con = JuMP.constraint_object(cref)
-        # Check if all M values are zero for that constraint. If so, it
-        # should be enforced globally (no reformulation with binaries).
+        # Check if all M values are zero for that constraint.
+        # If so, enforce globally (no reformulation needed).
         if !isempty(method.M) && all(
-               _is_all_zeros(method.M[d]) for d in keys(method.M)
-               )
+               _is_all_zeros(method.M[d])
+               for d in keys(method.M))
             push!(ref_cons, con)
         else
             append!(ref_cons,
-                reformulate_disjunct_constraint(model, con, bconref, method))
+                reformulate_disjunct_constraint(
+                    model, con, bconref, method))
         end
     end
     return ref_cons

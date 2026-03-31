@@ -492,7 +492,7 @@ function test_reformulate_disjunction()
     # Global constraint has just x, no binary variables
     @test JuMP.coefficient(func_3, x) == 1.0
 
-    #Test infeasible disjunct detection and deactivation
+    # Test infeasible disjunct throws error
     model2 = GDPModel()
     @variable(model2, 0 <= z <= 1)
     @variable(model2, W[1:2], Logical)
@@ -503,31 +503,8 @@ function test_reformulate_disjunction()
     disj2 = disjunction(model2, [W[1], W[2]])
 
     method2 = DP.MBM(HiGHS.Optimizer)
-    ref_cons2 = @test_logs (:warn, r"infeasible, deactivating") begin
-        reformulate_disjunction(model2, constraint_object(disj2), method2)
-    end
-
-    @test length(ref_cons2) == 1
-    @test ref_cons2[1].set == MOI.LessThan(0.5)
-
-    #Test multiple infeasible disjuncts
-    model3 = GDPModel()
-    @variable(model3, 0 <= w <= 1)
-    @variable(model3, V[1:3], Logical)
-    @constraint(model3, w >= 5, Disjunct(V[1]))   # infeasible
-    @constraint(model3, w >= 10, Disjunct(V[2]))  # infeasible
-    @constraint(model3, w <= 0.5, Disjunct(V[3])) # feasible
-    disj3 = disjunction(model3, [V[1], V[2], V[3]])
-
-    method3 = DP.MBM(HiGHS.Optimizer)
-    #warn about V[1] and V[2] being infeasible
-    ref_cons3 = @test_logs (:warn,) (:warn,) begin
-        reformulate_disjunction(model3, constraint_object(disj3), method3)
-    end
-
-    # Only V[3]'s constraint should be reformulated
-    @test length(ref_cons3) == 1
-    @test ref_cons3[1].set == MOI.LessThan(0.5)
+    @test_throws ErrorException reformulate_disjunction(
+        model2, constraint_object(disj2), method2)
 
     model4 = GDPModel()
     @variable(model4, 0 <= u <= 10)

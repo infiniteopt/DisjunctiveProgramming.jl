@@ -391,7 +391,6 @@ mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMetho
     M::Dict{LogicalVariableRef{M}, Any}
     default_M::T
     subproblem_indicators::Vector{LogicalVariableRef{M}}
-    deactivated::Set{LogicalVariableRef{M}}
     # Cached submodels: indicator => GDPSubmodel.
     # Typed Any so extensions can store different types.
     model_cache::Dict{LogicalVariableRef{M}, Any}
@@ -402,7 +401,6 @@ mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMetho
             Dict{LogicalVariableRef{M}, Any}(),
             method.default_M,
             Vector{LogicalVariableRef{M}}(),
-            Set{LogicalVariableRef{M}}(),
             Dict{LogicalVariableRef{M}, Any}()
         )
     end
