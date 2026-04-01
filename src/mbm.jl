@@ -239,75 +239,51 @@ end
 ################################################################################
 
 """
-    prepare_objectives(model, obj::ScalarConstraint, sub::GDPSubmodel)
+    prepare_max_M_objective(model, obj::ScalarConstraint, sub::GDPSubmodel)
 
-Convert a constraint into objective expressions for M-value maximization.
-Returns a vector of JuMP expressions to pass to `_raw_M`. The base method
-produces a single-element vector by mapping variables through `sub.fwd_map`.
+Convert a constraint into an objective expression for M-value
+maximization. Returns a single JuMP expression to pass to `_raw_M`.
 """
-function prepare_objectives(
+function prepare_max_M_objective(
     ::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = -obj.set.upper +_replace_variables_in_constraint(obj.func, flat_map)
-    return [expr]
+    expr = -obj.set.upper + _replace_variables_in_constraint(obj.func, flat_map)
+    return expr
 end
 
-function prepare_objectives(
+function prepare_max_M_objective(
     ::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = obj.set.lower -_replace_variables_in_constraint(obj.func, flat_map)
-    return [expr]
+    expr = obj.set.lower - _replace_variables_in_constraint(obj.func, flat_map)
+    return expr
 end
 
-# Solve the submodel for each objective and return raw M values as a vector, or
-# nothing if infeasible. Order of results matches order of objectives.
+# Solve the submodel for a single objective expression.
+# Returns a scalar M value, or nothing if infeasible.
 function _raw_M(
     sub::GDPSubmodel,
-    objectives::Vector{<:JuMP.AbstractJuMPScalar},
+    objective::JuMP.AbstractJuMPScalar,
     method::_MBM
     )
-    M_vals = typeof(method.default_M)[]
-    for obj_expr in objectives
-        JuMP.@objective(sub.model, Max, obj_expr)
-        JuMP.optimize!(sub.model)
-        if JuMP.is_solved_and_feasible(sub.model)
-            push!(M_vals, max(
-                JuMP.objective_value(sub.model),
-                zero(method.default_M))
-                )
-        elseif JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
-            return nothing
-        else
-            push!(M_vals, method.default_M)
-        end
+    JuMP.@objective(sub.model, Max, objective)
+    JuMP.optimize!(sub.model)
+    if JuMP.is_solved_and_feasible(sub.model)
+        return max(JuMP.objective_value(sub.model), zero(method.default_M))
+    elseif JuMP.termination_status(sub.model) == _MOI.INFEASIBLE
+        return nothing
+    else
+        return method.default_M
     end
-    return M_vals
-end
-
-"""
-    aggregate_M_values(model, vals::AbstractVector)
-
-Reduce a vector of raw M values from `_raw_M` to the final form used
-during constraint reformulation. The base method returns the single
-element from a length-1 vector. Extensions (e.g., InfiniteOpt) override
-to aggregate across multiple support points (e.g., interpolating K
-per-support M values into a parameter function).
-"""
-function aggregate_M_values(
-    ::JuMP.AbstractModel,
-    vals::AbstractVector
-    )
-    return only(vals)
 end
 
 # Dispatch over constraint types to compute M values. Scalar
-# LE/GE: prepare objectives, solve, finalize.
+# LE/GE: prepare objective, solve, return scalar.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.ScalarConstraint{T, S},
@@ -315,10 +291,8 @@ function _maximize_M(
     method::_MBM
     ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub = _get_submodel(model, constraints, method)
-    objectives = prepare_objectives(model, objective, sub)
-    raw = _raw_M(sub, objectives, method)
-    raw === nothing && return nothing
-    return aggregate_M_values(model, raw)
+    return _raw_M(sub,
+        prepare_max_M_objective(model, objective, sub), method)
 end
 
 # Helper: get or create the submodel for a set of constraints.
@@ -336,7 +310,7 @@ function _get_submodel(
     return method.model_cache[indicator]
 end
 
-# EqualTo: solve both GreaterThan and LessThan directions, finalize each.
+# EqualTo: solve both GreaterThan and LessThan directions.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.ScalarConstraint{T, S},
@@ -347,16 +321,14 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
+    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [aggregate_M_values(model, raw_lower), 
-    aggregate_M_values(model, raw_upper)
-    ]
+    return [raw_lower, raw_upper]
 end
 
-# Interval: solve both lower and upper bound directions, finalize each.
+# Interval: solve both lower and upper bound directions.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.ScalarConstraint{T, S},
@@ -369,17 +341,14 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
+    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
-    return [
-        aggregate_M_values(model, raw_lower), 
-        aggregate_M_values(model, raw_upper)
-        ]
+    return [raw_lower, raw_upper]
 end
 
-# Nonpositives: per-row LessThan solves for each dimension of the vector.
+# Nonpositives: per-row LessThan solves.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.VectorConstraint{T, S, R},
@@ -392,14 +361,16 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
+        raw = _raw_M(sub,
+            prepare_max_M_objective(model, le_obj, sub),
+            method)
         raw === nothing && return nothing
-        push!(results, aggregate_M_values(model, raw))
+        push!(results, raw)
     end
     return results
 end
 
-# Nonnegatives: per-row GreaterThan solves for each dimension of the vector.
+# Nonnegatives: per-row GreaterThan solves.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.VectorConstraint{T, S, R},
@@ -411,15 +382,18 @@ function _maximize_M(
     results = Any[]
     for i in 1:objective.set.dimension
         ge_obj = JuMP.ScalarConstraint(
-            objective.func[i], MOI.GreaterThan(zero(val_type)))
-        raw = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
+            objective.func[i],
+            MOI.GreaterThan(zero(val_type)))
+        raw = _raw_M(sub,
+            prepare_max_M_objective(model, ge_obj, sub),
+            method)
         raw === nothing && return nothing
-        push!(results, aggregate_M_values(model, raw))
+        push!(results, raw)
     end
     return results
 end
 
-# Zeros: per-row element-wise max of GE and LE raw values, then finalize.
+# Zeros: per-row element-wise max of GE and LE values.
 function _maximize_M(
     model::JuMP.AbstractModel,
     objective::JuMP.VectorConstraint{T, S, R},
@@ -431,14 +405,20 @@ function _maximize_M(
     results = Any[]
     for i in 1:objective.set.dimension
         ge_obj = JuMP.ScalarConstraint(
-            objective.func[i], MOI.GreaterThan(zero(val_type)))
+            objective.func[i],
+            MOI.GreaterThan(zero(val_type)))
         le_obj = JuMP.ScalarConstraint(
-            objective.func[i], MOI.LessThan(zero(val_type)))
-        raw_ge = _raw_M(sub, prepare_objectives(model, ge_obj, sub), method)
-        raw_le = _raw_M(sub, prepare_objectives(model, le_obj, sub), method)
+            objective.func[i],
+            MOI.LessThan(zero(val_type)))
+        raw_ge = _raw_M(sub,
+            prepare_max_M_objective(model, ge_obj, sub),
+            method)
+        raw_le = _raw_M(sub,
+            prepare_max_M_objective(model, le_obj, sub),
+            method)
         (raw_ge === nothing || raw_le === nothing) &&
             return nothing
-        push!(results, aggregate_M_values(model, max.(raw_ge, raw_le)))
+        push!(results, max(raw_ge, raw_le))
     end
     return results
 end

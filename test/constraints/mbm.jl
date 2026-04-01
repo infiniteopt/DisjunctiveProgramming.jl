@@ -52,7 +52,7 @@ function test__replace_variables_quad_numeric_map()
     @test result3.aff.terms[y] ≈ 3.0
 end
 
-function test__replace_variables_in_constraint()
+function test_replace_variables_in_constraint()
     model = Model()
     sub_model = Model()
     @variable(model, x[1:3])
@@ -84,7 +84,7 @@ function test__replace_variables_in_constraint()
         "String", new_vars)
 end
 
-function test_prepare_objectives()
+function test_prepare_max_M_objective()
     model = Model()
     sub_model = Model()
 
@@ -99,17 +99,15 @@ function test_prepare_objectives()
         collect(keys(new_vars)), new_vars)
 
     # LessThan: max(f - upper) = max(x[1] - 1)
-    objs_le = DP.prepare_objectives(
+    obj_le = DP.prepare_max_M_objective(
         model, constraint_object(lessthan), sub)
-    @test length(objs_le) == 1
-    @test objs_le[1] == JuMP.@expression(sub_model,
+    @test obj_le == JuMP.@expression(sub_model,
         new_vars[x[1]][1] - 1)
 
     # GreaterThan: max(lower - f) = max(1 - x[2])
-    objs_ge = DP.prepare_objectives(
+    obj_ge = DP.prepare_max_M_objective(
         model, constraint_object(greaterthan), sub)
-    @test length(objs_ge) == 1
-    @test objs_ge[1] == JuMP.@expression(sub_model,
+    @test obj_ge == JuMP.@expression(sub_model,
         1 - new_vars[x[2]][1])
 end
 
@@ -134,43 +132,39 @@ function test_raw_M()
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
     sub = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con2], mbm)
-    objs = DP.prepare_objectives(model,
+    obj = DP.prepare_max_M_objective(model,
         constraint_object(con), sub)
-    raw = DP._raw_M(sub, objs, mbm)
-    @test DP.aggregate_M_values(model, raw) == 0.0
+    @test DP._raw_M(sub, obj, mbm) == 0.0
     set_upper_bound(x, 1)
     sub2 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm)
-    objs2 = DP.prepare_objectives(model,
+    obj2 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    raw = DP._raw_M(sub2, objs2, mbm)
-    @test DP.aggregate_M_values(model, raw) == 15
+    @test DP._raw_M(sub2, obj2, mbm) == 15
     set_integer(y)
     @constraint(model, con3, y*x == 15,
         Disjunct(Y[1]))
-    objs3 = DP.prepare_objectives(model,
+    obj3 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    raw = DP._raw_M(sub2, objs3, mbm)
-    @test DP.aggregate_M_values(model, raw) == 15
+    @test DP._raw_M(sub2, obj3, mbm) == 15
     # Fresh _MBM after changing bounds
     JuMP.fix(y, 5; force=true)
     mbm2 = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
     sub3 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm2)
-    objs4 = DP.prepare_objectives(model,
+    obj4 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub3)
-    raw = DP._raw_M(sub3, objs4, mbm2)
-    @test DP.aggregate_M_values(model, raw) == 10
+    @test DP._raw_M(sub3, obj4, mbm2) == 10
     # Infeasible region → nothing
     delete_lower_bound(x)
     mbm3 = DP._MBM(
         DP.MBM(HiGHS.Optimizer), JuMP.Model())
     sub4 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con2], mbm3)
-    objs5 = DP.prepare_objectives(model,
+    obj5 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub4)
-    @test DP._raw_M(sub4, objs5, mbm3) == nothing
+    @test DP._raw_M(sub4, obj5, mbm3) == nothing
 
     # infeasible (x >= 100 but x <= 1)
     set_upper_bound(x, 1)
@@ -179,9 +173,9 @@ function test_raw_M()
     sub5 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[truly_infeasible],
         mbm4)
-    objs6 = DP.prepare_objectives(model,
+    obj6 = DP.prepare_max_M_objective(model,
         constraint_object(con), sub5)
-    @test DP._raw_M(sub5, objs6, mbm4) == nothing
+    @test DP._raw_M(sub5, obj6, mbm4) == nothing
 
     # Unbounded subproblem → default_M fallback.
     # No lower bound on x means max(5 - x) s.t. x <= 3
@@ -195,10 +189,9 @@ function test_raw_M()
     mbm_ub = DP._MBM(DP.MBM(HiGHS.Optimizer), JuMP.Model())
     sub_ub = DP.copy_model_with_constraints(model_ub,
         DisjunctConstraintRef[ub_con1], mbm_ub)
-    objs_ub = DP.prepare_objectives(model_ub,
+    obj_ub = DP.prepare_max_M_objective(model_ub,
         constraint_object(ub_con2), sub_ub)
-    raw_ub = DP._raw_M(sub_ub, objs_ub, mbm_ub)
-    @test raw_ub == [mbm_ub.default_M]
+    @test DP._raw_M(sub_ub, obj_ub, mbm_ub) == mbm_ub.default_M
 end
 
 function test_maximize_M()
@@ -801,8 +794,8 @@ end
     test_mbm()
     test__var_ref_type_numeric_map()
     test__replace_variables_quad_numeric_map()
-    test__replace_variables_in_constraint()
-    test_prepare_objectives()
+    test_replace_variables_in_constraint()
+    test_prepare_max_M_objective()
     test_raw_M()
     test_maximize_M()
     test_reformulate_disjunct_constraint()
