@@ -483,7 +483,7 @@ along with mappings back to the original model's variables.
    feasible region (constraints and variable bounds).
 - `dec_vars::Vector{V}`: Ordered decision variables in
    the submodel, matching the original model's ordering.
-- `fwd::Dict{V, Vector{W}}`: Forward map from original
+- `fwd_map::Dict{V, Vector{W}}`: Forward map from original
    model variables to their submodel counterparts.
 """
 struct GDPSubmodel{M <: JuMP.AbstractModel,
@@ -491,7 +491,7 @@ struct GDPSubmodel{M <: JuMP.AbstractModel,
                    W <: JuMP.AbstractVariableRef}
     model::M
     dec_vars::Vector{V}
-    fwd::Dict{V, Vector{W}}
+    fwd_map::Dict{V, Vector{W}}
 end
 
 """

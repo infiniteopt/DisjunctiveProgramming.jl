@@ -731,16 +731,16 @@ function test__copy_model_with_constraints()
     @test sub isa DP.GDPSubmodel
     @test sub.model isa Model
     # Check variable mapping exists
-    @test haskey(sub.fwd, x)
-    @test haskey(sub.fwd, y)
+    @test haskey(sub.fwd_map, x)
+    @test haskey(sub.fwd_map, y)
 
     # Check mapped variables (length-1 vectors)
-    @test length(sub.fwd[x]) == 1
-    @test length(sub.fwd[y]) == 1
+    @test length(sub.fwd_map[x]) == 1
+    @test length(sub.fwd_map[y]) == 1
 
     # Check bounds in submodel
-    xm = sub.fwd[x][1]
-    ym = sub.fwd[y][1]
+    xm = sub.fwd_map[x][1]
+    ym = sub.fwd_map[y][1]
     @test has_lower_bound(xm)
     @test lower_bound(xm) == 0
     @test has_upper_bound(xm)

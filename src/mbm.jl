@@ -243,14 +243,14 @@ end
 
 Convert a constraint into objective expressions for M-value maximization.
 Returns a vector of JuMP expressions to pass to `_raw_M`. The base method
-produces a single-element vector by mapping variables through `sub.fwd`.
+produces a single-element vector by mapping variables through `sub.fwd_map`.
 """
 function prepare_objectives(
     ::JuMP.AbstractModel,
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
-    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd)
+    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
     expr = -obj.set.upper +_replace_variables_in_constraint(obj.func, flat_map)
     return [expr]
 end
@@ -260,7 +260,7 @@ function prepare_objectives(
     obj::JuMP.ScalarConstraint{T, S},
     sub::GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
-    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd)
+    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
     expr = obj.set.lower -_replace_variables_in_constraint(obj.func, flat_map)
     return [expr]
 end
@@ -467,16 +467,16 @@ function copy_model_with_constraints(
     var_type = JuMP.variable_ref_type(model)
     sub_model = _copy_model(model)
     dec_vars = collect_all_vars(model)
-    fwd = Dict{var_type, Vector{var_type}}()
+    fwd_map = Dict{var_type, Vector{var_type}}()
 
     for var in dec_vars
         copy_var = variable_copy(sub_model, var)
-        fwd[var] = [copy_var]
+        fwd_map[var] = [copy_var]
     end
 
     for cref in constraints
         con = JuMP.constraint_object(cref)
-        flat_map = Dict(v => ws[1] for (v, ws) in fwd)
+        flat_map = Dict(v => ws[1] for (v, ws) in fwd_map)
         expr = _replace_variables_in_constraint(
             con.func, flat_map)
         T = one(JuMP.value_type(typeof(sub_model)))
@@ -486,7 +486,7 @@ function copy_model_with_constraints(
     JuMP.set_optimizer(sub_model, method.optimizer)
     JuMP.set_silent(sub_model)
 
-    return GDPSubmodel(sub_model, dec_vars, fwd)
+    return GDPSubmodel(sub_model, dec_vars, fwd_map)
 end
 
 ################################################################################
