@@ -339,7 +339,7 @@ end
 function test_unsupported_methods_error()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     @test_throws ErrorException DP.reformulate_model(model, MBM(HiGHS.Optimizer))
-    @test_throws ErrorException DP.reformulate_model(model, cutting_planes(HiGHS.Optimizer))
+    @test_throws ErrorException DP.reformulate_model(model, CuttingPlanes(HiGHS.Optimizer))
 end
 
 function test_methods()

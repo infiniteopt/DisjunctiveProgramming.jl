@@ -1,7 +1,7 @@
 ################################################################################
 #                                MODEL COPYING
 ################################################################################
-# extentsion point for model copying
+# Extension point for model copying (creates empty model).
 function _copy_model(
     model::M
     ) where {M <: JuMP.AbstractModel}
