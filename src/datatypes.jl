@@ -481,7 +481,7 @@ along with mappings back to the original model's variables.
 ## Fields
 - `model::M`: The JuMP submodel representing a disjunct's
    feasible region (constraints and variable bounds).
-- `dec_vars::Vector{V}`: Ordered decision variables in
+- `decision_vars::Vector{V}`: Ordered decision variables in
    the submodel, matching the original model's ordering.
 - `fwd_map::Dict{V, Vector{W}}`: Forward map from original
    model variables to their submodel counterparts.
@@ -490,7 +490,7 @@ struct GDPSubmodel{M <: JuMP.AbstractModel,
                    V <: JuMP.AbstractVariableRef,
                    W <: JuMP.AbstractVariableRef}
     model::M
-    dec_vars::Vector{V}
+    decision_vars::Vector{V}
     fwd_map::Dict{V, Vector{W}}
 end
 

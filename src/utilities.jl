@@ -8,6 +8,100 @@ function _copy_model(
     return M()
 end
 
+"""
+    copy_and_reformulate(model, decision_vars, reform_method, method)
+
+Copy the GDP model, reformulate the copy with `reform_method`,
+and wrap in a `GDPSubmodel`. The original model is not
+modified. The copy's objective is rewritten in terms of the
+copied variables.
+"""
+function copy_and_reformulate(
+    model::JuMP.AbstractModel,
+    decision_vars::Vector{<:JuMP.AbstractVariableRef},
+    reform_method::AbstractReformulationMethod,
+    method::AbstractReformulationMethod
+    )
+    copy, ref_map, _ = copy_gdp_model(model)
+    reformulate_model(copy, reform_method)
+    obj = JuMP.objective_function(model)
+    sense = JuMP.objective_sense(model)
+    V = JuMP.variable_ref_type(model)
+    orig_to_copy = Dict{V, V}(
+        v => ref_map[v] for v in decision_vars)
+    JuMP.@objective(copy, sense,
+        _replace_variables_in_constraint(obj, orig_to_copy)
+        )
+    fwd_map = Dict{V, Vector{V}}(v => [ref_map[v]] for v in decision_vars)
+    sub = GDPSubmodel(copy, decision_vars, fwd_map)
+    JuMP.set_optimizer(sub.model, method.optimizer)
+    JuMP.set_silent(sub.model)
+    return sub
+end
+
+"""
+    reformulate_and_relax(model, decision_vars, reform_method, method)
+
+Reformulate the model in-place with `reform_method` and relax
+integrality. Returns `(GDPSubmodel, undo_fn)` where `undo_fn`
+restores integrality.
+"""
+function reformulate_and_relax(
+    model::JuMP.AbstractModel,
+    decision_vars::Vector{<:JuMP.AbstractVariableRef},
+    reform_method::AbstractReformulationMethod,
+    method::AbstractReformulationMethod
+    )
+    reformulate_model(model, reform_method)
+    V = JuMP.variable_ref_type(model)
+    fwd_map = Dict{V, Vector{V}}(v => [v] for v in decision_vars)
+    sub = GDPSubmodel(model, decision_vars, fwd_map)
+    JuMP.set_optimizer(sub.model, method.optimizer)
+    JuMP.set_silent(sub.model)
+    undo_relax = JuMP.relax_integrality(model)
+    return sub, undo_relax
+end
+
+################################################################################
+#                          LOGICAL VARIABLE RELAXATION
+################################################################################
+"""
+    relax_logical_vars(model::JuMP.AbstractModel)
+
+Relax the binary variables associated with logical indicators
+to continuous variables in `[0, 1]`. Returns a vector of the
+relaxed variable references, which can be passed to
+[`unrelax_logical_vars`](@ref) to restore integrality.
+"""
+function relax_logical_vars(model::JuMP.AbstractModel)
+    V = JuMP.variable_ref_type(model)
+    binary_refs = V[]
+    for (_, bvar) in _indicator_to_binary(model)
+        bvar isa V || continue
+        push!(binary_refs, bvar)
+        JuMP.unset_binary(bvar)
+        JuMP.set_lower_bound(bvar, 0.0)
+        JuMP.set_upper_bound(bvar, 1.0)
+    end
+    return binary_refs
+end
+
+"""
+    unrelax_logical_vars(
+        binary_refs::Vector{<:JuMP.AbstractVariableRef}
+        )
+
+Restore the binary constraint on variables previously relaxed
+by [`relax_logical_vars`](@ref).
+"""
+function unrelax_logical_vars(
+    binary_refs::Vector{<:JuMP.AbstractVariableRef}
+    )
+    for v in binary_refs
+        JuMP.set_binary(v)
+    end
+end
+
 ################################################################################
 #                              ALL VARIABLES
 ################################################################################

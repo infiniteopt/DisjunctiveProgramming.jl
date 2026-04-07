@@ -434,10 +434,9 @@ end
 """
     copy_model_with_constraints(model, constraints, method)
 
-Build a `GDPSubmodel` with disjunct constraints passed.
-This builds a model seperate from the original model with copied constraints 
-and variables, and maps between the original model's variables and the 
-submodel's variables.
+Create a new model with only the variables (and their bounds)
+from `model` and the selected `constraints`. Returns a
+`GDPSubmodel` wrapping the new model.
 """
 function copy_model_with_constraints(
     model::JuMP.AbstractModel,
@@ -446,19 +445,18 @@ function copy_model_with_constraints(
     )
     var_type = JuMP.variable_ref_type(model)
     sub_model = _copy_model(model)
-    dec_vars = collect_all_vars(model)
+    decision_vars = collect_all_vars(model)
     fwd_map = Dict{var_type, Vector{var_type}}()
 
-    for var in dec_vars
+    for var in decision_vars
         copy_var = variable_copy(sub_model, var)
         fwd_map[var] = [copy_var]
     end
 
     for cref in constraints
         con = JuMP.constraint_object(cref)
-        flat_map = Dict(v => ws[1] for (v, ws) in fwd_map)
-        expr = _replace_variables_in_constraint(
-            con.func, flat_map)
+        flat_map = Dict(v => only(ws) for (v, ws) in fwd_map)
+        expr = _replace_variables_in_constraint(con.func, flat_map)
         T = one(JuMP.value_type(typeof(sub_model)))
         JuMP.@constraint(sub_model, expr * T in con.set)
     end
@@ -466,7 +464,7 @@ function copy_model_with_constraints(
     JuMP.set_optimizer(sub_model, method.optimizer)
     JuMP.set_silent(sub_model)
 
-    return GDPSubmodel(sub_model, dec_vars, fwd_map)
+    return GDPSubmodel(sub_model, decision_vars, fwd_map)
 end
 
 ################################################################################
