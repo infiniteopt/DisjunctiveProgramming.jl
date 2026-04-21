@@ -1,4 +1,4 @@
-using InfiniteOpt, HiGHS, Ipopt, Juniper
+using InfiniteOpt, HiGHS, Ipopt, Juniper, Interpolations
 import DisjunctiveProgramming as DP
 
 # Helper to access internal function
@@ -75,6 +75,24 @@ function test__is_parameter()
     # Test non-parameter variables (else branch)
     @test IDP._is_parameter(x) == false
     @test IDP._is_parameter(y) == false
+end
+
+# _is_parameter on unwrapped concrete dispatch types. Covers
+# ext lines 28-32 (DependentParameterRef, IndependentParameterRef,
+# FiniteParameterRef, ParameterFunctionRef, Any fallback).
+function test__is_parameter_concrete_dispatches()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @infinite_parameter(model, s[1:2] ∈ [0, 1], independent = true)
+    @finite_parameter(model, p == 1.0)
+    @variable(model, x, Infinite(t))
+    @parameter_function(model, pf == t -> 2*t)
+    dvr = InfiniteOpt.dispatch_variable_ref
+    @test IDP._is_parameter(dvr(t)) == true      # Dependent
+    @test IDP._is_parameter(dvr(s[1])) == true    # Independent
+    @test IDP._is_parameter(dvr(p)) == true       # Finite
+    @test IDP._is_parameter(dvr(pf)) == true      # ParamFunc
+    @test IDP._is_parameter(dvr(x)) == false      # Any
 end
 
 function test_requires_disaggregation()
@@ -167,6 +185,43 @@ function test_disaggregate_expression_infiniteopt()
     aff_not_disagg = @expression(model, 3*y + 1)
     result_not_disagg = DP.disaggregate_expression(model, aff_not_disagg, bvref, method)
     @test haskey(result_not_disagg.terms, y)
+end
+
+function test_disaggregate_quad_expression_infiniteopt()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= y <= 5, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+
+    bvrefs = DP._indicator_to_binary(model)
+    bvref = bvrefs[z]
+
+    vrefs = Set([x, y])
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._variable_bounds(model)[y] = DP.set_variable_bound_info(y, Hull())
+    method = DP._Hull(Hull(1e-3), vrefs)
+    DP._disaggregate_variables(model, z, vrefs, method)
+
+    # var × var → nonlinear (perspective divides by y)
+    quad_vv = @expression(model, x * y)
+    result_vv = DP.disaggregate_expression(model, quad_vv, bvref, method)
+    @test result_vv isa JuMP.GenericNonlinearExpr
+
+    # param × var → quadratic (param * disaggregated)
+    quad_pv = @expression(model, t * x)
+    result_pv = DP.disaggregate_expression(model, quad_pv, bvref, method)
+    @test result_pv isa JuMP.GenericQuadExpr
+
+    # var × param → quadratic (disaggregated * param)
+    quad_vp = @expression(model, x * t)
+    result_vp = DP.disaggregate_expression(model, quad_vp, bvref, method)
+    @test result_vp isa JuMP.GenericQuadExpr
+
+    # param × param → cubic (t * t * bvref)
+    quad_pp = @expression(model, t * t)
+    result_pp = DP.disaggregate_expression(model, quad_pp, bvref, method)
+    @test result_pp isa JuMP.GenericNonlinearExpr
 end
 
 function test_variable_properties_infiniteopt()
@@ -336,10 +391,110 @@ function test_logical_value()
     @test eltype(val) == Bool
 end
 
-function test_unsupported_methods_error()
+# _collect_parameters on model with no infinite parameters.
+# Covers ext line 508.
+function test__collect_parameters_no_params()
+    model = InfiniteGDPModel()
+    @test_throws ErrorException IDP._collect_parameters(model)
+end
+
+# MBM with finite + integer variables in InfiniteModel. Covers
+# copy_model_with_constraints (finite var, set_integer),
+# and _build_flat_map line 252 (finite var path).
+function test_mbm_finite_and_integer_var()
     model = InfiniteGDPModel(HiGHS.Optimizer)
-    @test_throws ErrorException DP.reformulate_model(model, MBM(HiGHS.Optimizer))
-    @test_throws ErrorException DP.reformulate_model(model, CuttingPlanes(HiGHS.Optimizer))
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= w <= 5, Int)
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, x + w >= 5, Disjunct(Y[1]))
+    @constraint(model, x + w <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Min, ∫(x, t) + w)
+    @test optimize!(model,
+        gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+end
+
+function test_mbm_infinite_simple()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+
+    @constraint(model, x >= 5, Disjunct(Y[1]))
+    @constraint(model, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+
+    @objective(model, Min, ∫(x, t))
+
+    @test optimize!(model, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+    # x=0 with disjunct 2 active (x <= 3) gives min
+    @test objective_value(model) ≈ 0.0 atol = 0.1
+end
+
+function test_mbm_infinite_param_dependent()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 20)
+    @variable(model, -10 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+
+    # Parameter-dependent constraints:
+    # Disjunct 1: x(t) <= 2*t
+    # Disjunct 2: x(t) >= 1 - t
+    @parameter_function(model, f1 == t -> 2*t)
+    @parameter_function(model, f2 == t -> 1 - t)
+    @constraint(model, x <= f1, Disjunct(Y[1]))
+    @constraint(model, x >= f2, Disjunct(Y[2]))
+    @disjunction(model, Y)
+
+    @objective(model, Min, ∫(x, t))
+
+    @test optimize!(model, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+end
+
+function test_mbm_vs_bigm_infinite()
+    # Compare MBM and BigM: should give same
+    # feasible set and optimal value.
+    for method_pair in [
+        (BigM(100), MBM(HiGHS.Optimizer))
+    ]
+        model1 = InfiniteGDPModel(HiGHS.Optimizer)
+        set_silent(model1)
+        @infinite_parameter(model1, t ∈ [0, 1], num_supports = 10)
+        @variable(model1, 0 <= x1 <= 10, Infinite(t))
+        @variable(model1, Y1[1:2], InfiniteLogical(t))
+        @constraint(model1, x1 >= 5, Disjunct(Y1[1]))
+        @constraint(model1, x1 <= 3, Disjunct(Y1[2]))
+        @disjunction(model1, Y1)
+        @objective(model1, Min, ∫(x1, t))
+        optimize!(model1, gdp_method = method_pair[1])
+        obj1 = objective_value(model1)
+
+        model2 = InfiniteGDPModel(HiGHS.Optimizer)
+        set_silent(model2)
+        @infinite_parameter(model2, t2 ∈ [0, 1], num_supports = 10)
+        @variable(model2, 0 <= x2 <= 10, Infinite(t2))
+        @variable(model2, Y2[1:2], InfiniteLogical(t2))
+        @constraint(model2, x2 >= 5, Disjunct(Y2[1]))
+        @constraint(model2, x2 <= 3, Disjunct(Y2[2]))
+        @disjunction(model2, Y2)
+        @objective(model2, Min, ∫(x2, t2))
+        optimize!(model2, gdp_method = method_pair[2])
+        obj2 = objective_value(model2)
+
+        @test obj1 ≈ obj2 atol = 0.5
+    end
 end
 
 function test_methods()
@@ -393,6 +548,154 @@ function test_methods()
     @test value(z) ≈ expected_z atol=tol
 end
 
+function test_mbm_with_derivatives()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, -5 <= x <= 5, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+
+    @constraint(model, ∂(x, t) >= 1, Disjunct(Y[1]))
+    @constraint(model, ∂(x, t) <= -1, Disjunct(Y[2]))
+    @disjunction(model, Y)
+
+    set_upper_bound(∂(x, t), 10)
+    set_lower_bound(∂(x, t), -10)
+
+    @objective(model, Min, ∫(x^2, t))
+
+    juniper = JuMP.optimizer_with_attributes(
+        Juniper.Optimizer,
+        "nl_solver" => JuMP.optimizer_with_attributes(
+            Ipopt.Optimizer, "print_level" => 0),
+        "log_levels" => []
+    )
+    set_optimizer(model, juniper)
+    @test optimize!(model, gdp_method = MBM(juniper)) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED,
+         MOI.ALMOST_LOCALLY_SOLVED]
+end
+
+function test_CuttingPlanes_infinite_simple()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+
+    @constraint(model, x >= 5, Disjunct(Y[1]))
+    @constraint(model, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+
+    @objective(model, Min, ∫(x, t))
+
+    # Should not throw
+    @test optimize!(model,
+        gdp_method = CuttingPlanes(
+            HiGHS.Optimizer; max_iter = 5)
+    ) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+end
+
+function test_CuttingPlanes_infinite_two_disj()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, 0 <= x[1:2] <= 10, Infinite(t))
+    @variable(model, W1[1:2], InfiniteLogical(t))
+    @variable(model, W2[1:2], InfiniteLogical(t))
+
+    @constraint(model, x[1] >= 2, Disjunct(W1[1]))
+    @constraint(model, x[1] <= 1, Disjunct(W1[2]))
+    @disjunction(model, W1)
+
+    @constraint(model, x[2] >= 3, Disjunct(W2[1]))
+    @constraint(model, x[2] <= 2, Disjunct(W2[2]))
+    @disjunction(model, W2)
+
+    @objective(model, Min, ∫(x[1] + x[2], t))
+
+    # Compare cutting planes vs BigM
+    optimize!(model,
+        gdp_method = CuttingPlanes(
+            HiGHS.Optimizer; max_iter = 10)
+    )
+    cp_obj = objective_value(model)
+
+    model2 = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model2)
+    @infinite_parameter(model2, t2 ∈ [0, 1], num_supports = 10)
+    @variable(model2, 0 <= x2[1:2] <= 10, Infinite(t2))
+    @variable(model2, V1[1:2], InfiniteLogical(t2))
+    @variable(model2, V2[1:2], InfiniteLogical(t2))
+    @constraint(model2, x2[1] >= 2, Disjunct(V1[1]))
+    @constraint(model2, x2[1] <= 1, Disjunct(V1[2]))
+    @disjunction(model2, V1)
+    @constraint(model2, x2[2] >= 3, Disjunct(V2[1]))
+    @constraint(model2, x2[2] <= 2, Disjunct(V2[2]))
+    @disjunction(model2, V2)
+    @objective(model2, Min, ∫(x2[1] + x2[2], t2))
+    optimize!(model2, gdp_method = BigM())
+    bigm_obj = objective_value(model2)
+
+    @test cp_obj ≈ bigm_obj atol = 1.0
+end
+
+
+
+function test_CuttingPlanes_with_cuts()
+    # Maximization with single-constraint disjuncts where Hull
+    # is strictly tighter than BigM. BigM allows x+y up to
+    # variable bounds (20), Hull limits to max(5,8)=8. This
+    # forces cuts. Finite var w exercises isempty(vprefs)
+    # branch in add_original_model_cut (line 779).
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= y <= 10, Infinite(t))
+    @variable(model, 0 <= w <= 10)
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, x + y <= 5, Disjunct(Y[1]))
+    @constraint(model, x + y <= 8, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, ∫(x + y, t) + w)
+    cutting_planes = CuttingPlanes(HiGHS.Optimizer;
+        max_iter = 30, seperation_tolerance = 1e-6)
+    @test optimize!(model, gdp_method = cutting_planes) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+end
+
+function test_CuttingPlanes_multiparameter()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @infinite_parameter(model, s ∈ [0, 2], num_supports = 4)
+    @variable(model, 0 <= x <= 10, Infinite(t, s))
+    @variable(model, Y[1:2], InfiniteLogical(t, s))
+
+    @constraint(model, x >= 5, Disjunct(Y[1]))
+    @constraint(model, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+
+    @objective(model, Min, ∫(∫(x, t), s))
+
+    # Should not throw
+    @test optimize!(model,
+        gdp_method = CuttingPlanes(
+            HiGHS.Optimizer; max_iter = 5)
+    ) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+end
+
 @testset "InfiniteDisjunctiveProgramming" begin
 
     @testset "Model" begin
@@ -406,6 +709,7 @@ end
     @testset "Variables" begin
         test_infinite_logical()
         test__is_parameter()
+        test__is_parameter_concrete_dispatches()
         test_requires_disaggregation()
         test_variable_properties_infiniteopt()
         test_variable_properties_from_expr()
@@ -429,12 +733,32 @@ end
     @testset "Methods" begin
         test_get_constant()
         test_disaggregate_expression_infiniteopt()
-        test_unsupported_methods_error()
+        test_disaggregate_quad_expression_infiniteopt()
+    end
+
+    @testset "Internal Helpers" begin
+        test__collect_parameters_no_params()
+    end
+
+    @testset "MBM" begin
+        test_mbm_finite_and_integer_var()
+        test_mbm_infinite_simple()
+        test_mbm_infinite_param_dependent()
+        test_mbm_vs_bigm_infinite()
+        test_mbm_with_derivatives()
     end
 
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()
     end
+
+    @testset "Cutting Planes" begin
+        test_CuttingPlanes_infinite_simple()
+        test_CuttingPlanes_infinite_two_disj()
+        test_CuttingPlanes_with_cuts()
+        test_CuttingPlanes_multiparameter()
+    end
+
 
 end

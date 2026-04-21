@@ -242,7 +242,7 @@ end
     prepare_max_M_objective(model, obj::ScalarConstraint, sub::GDPSubmodel)
 
 Convert a constraint into an objective expression for M-value
-maximization. Returns a single JuMP expression to pass to `_raw_M`.
+maximization. Returns a single JuMP expression to pass to `raw_M`.
 """
 function prepare_max_M_objective(
     ::JuMP.AbstractModel,
@@ -266,7 +266,7 @@ end
 
 # Solve the submodel for a single objective expression.
 # Returns a scalar M value, or nothing if infeasible.
-function _raw_M(
+function raw_M(
     sub::GDPSubmodel,
     objective::JuMP.AbstractJuMPScalar,
     method::_MBM
@@ -291,7 +291,7 @@ function _maximize_M(
     method::_MBM
     ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub = _get_submodel(model, constraints, method)
-    return _raw_M(sub,
+    return raw_M(sub,
         prepare_max_M_objective(model, objective, sub), method)
 end
 
@@ -321,8 +321,8 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
+    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [raw_lower, raw_upper]
@@ -341,8 +341,8 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
+    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [raw_lower, raw_upper]
@@ -361,7 +361,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = _raw_M(sub,
+        raw = raw_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
         raw === nothing && return nothing
@@ -384,7 +384,7 @@ function _maximize_M(
         ge_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.GreaterThan(zero(val_type)))
-        raw = _raw_M(sub,
+        raw = raw_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
         raw === nothing && return nothing
@@ -410,10 +410,10 @@ function _maximize_M(
         le_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.LessThan(zero(val_type)))
-        raw_ge = _raw_M(sub,
+        raw_ge = raw_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
-        raw_le = _raw_M(sub,
+        raw_le = raw_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
         (raw_ge === nothing || raw_le === nothing) &&
