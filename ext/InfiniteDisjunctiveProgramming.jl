@@ -303,10 +303,15 @@ function DP.prepare_max_M_objective(
     return InfiniteOpt.transformation_expression(obj.set.lower - mini_expr)
 end
 
+# Real dispatch: pure-parameter slacks collapse to a constant at that
+# support. Mirrors the max(value, 0) semantics of the scalar base.
+DP.raw_M(::DP.GDPSubmodel, obj::Real, method::DP._MBM) =
+    max(obj, zero(method.default_M))
+
 # Solve the submodel for a vector of objectives (one per support point).
-# Elements may be Real when the slack is pure-parameter at that support;
-# JuMP's @objective accepts Real and the solver treats it as a constant
-# objective, which gives the correct M value for that slice.
+# Clears start values before each solve (Gurobi refuses NaN warmstarts
+# that can linger from a prior unbounded solve) and delegates each
+# element to the scalar base `raw_M` above.
 function DP.raw_M(
     sub::DP.GDPSubmodel,
     objectives::Vector{<:Union{Real, JuMP.AbstractJuMPScalar}},
@@ -315,18 +320,9 @@ function DP.raw_M(
     M_vals = typeof(method.default_M)[]
     for obj_expr in objectives
         JuMP.set_start_value.(JuMP.all_variables(sub.model), nothing)
-        JuMP.@objective(sub.model, Max, obj_expr)
-        JuMP.optimize!(sub.model)
-        if JuMP.is_solved_and_feasible(sub.model)
-            push!(M_vals, max(
-                JuMP.objective_value(sub.model),
-                zero(method.default_M)))
-        elseif JuMP.termination_status(sub.model) ==
-                JuMP.MOI.INFEASIBLE
-            return nothing
-        else
-            push!(M_vals, method.default_M)
-        end
+        m = DP.raw_M(sub, obj_expr, method)
+        m === nothing && return nothing
+        push!(M_vals, m)
     end
     model = sub.model.ext[:inf_mbm_main]
     # Condense per-support values: scalar if uniform, else pfunc.
