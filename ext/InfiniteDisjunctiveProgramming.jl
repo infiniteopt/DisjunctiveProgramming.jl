@@ -297,7 +297,7 @@ function DP.copy_model_with_constraints(
         ref_map[p] = new_p
     end
 
-    # 2. Copy decision variables with bounds (skip parameters)
+    # 2. Copy decision variables with bounds
     for v in JuMP.all_variables(model)
         _is_parameter(v) && continue
         prefs = InfiniteOpt.parameter_refs(v)
@@ -351,8 +351,7 @@ function DP.copy_model_with_constraints(
     end
 
     # 7. Remap fwd_map: original model var -> flat JuMP VarRef
-    fwd_map = Dict{InfiniteOpt.GeneralVariableRef,
-        Vector{JuMP.VariableRef}}()
+    fwd_map = Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}()
     for (orig, mapped) in ref_map
         _is_parameter(orig) && continue
         haskey(tr_fwd, mapped) || continue
@@ -561,7 +560,9 @@ function DP.add_cut(
     )
     prefs, sups = _collect_parameters(model)
     inf_terms = Any[]
-    cut_scalar = DP._zero_aff(model)
+    cut_scalar = zero(JuMP.GenericAffExpr{
+        JuMP.value_type(typeof(model)),
+        InfiniteOpt.GeneralVariableRef})
     for var in decision_vars
         haskey(rBM_sol, var) || continue
         haskey(sep_sol, var) || continue
