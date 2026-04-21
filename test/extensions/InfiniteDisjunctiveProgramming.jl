@@ -77,9 +77,9 @@ function test__is_parameter()
     @test IDP._is_parameter(y) == false
 end
 
-# _is_parameter on unwrapped concrete dispatch types. Covers
-# ext lines 28-32 (DependentParameterRef, IndependentParameterRef,
-# FiniteParameterRef, ParameterFunctionRef, Any fallback).
+# _is_parameter on unwrapped concrete dispatch types
+# (DependentParameterRef, IndependentParameterRef, FiniteParameterRef,
+# ParameterFunctionRef, Any fallback).
 function test__is_parameter_concrete_dispatches()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
@@ -185,43 +185,6 @@ function test_disaggregate_expression_infiniteopt()
     aff_not_disagg = @expression(model, 3*y + 1)
     result_not_disagg = DP.disaggregate_expression(model, aff_not_disagg, bvref, method)
     @test haskey(result_not_disagg.terms, y)
-end
-
-function test_disaggregate_quad_expression_infiniteopt()
-    model = InfiniteGDPModel()
-    @infinite_parameter(model, t ∈ [0, 1])
-    @variable(model, 0 <= x <= 10, Infinite(t))
-    @variable(model, 0 <= y <= 5, Infinite(t))
-    @variable(model, z, InfiniteLogical(t))
-
-    bvrefs = DP._indicator_to_binary(model)
-    bvref = bvrefs[z]
-
-    vrefs = Set([x, y])
-    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
-    DP._variable_bounds(model)[y] = DP.set_variable_bound_info(y, Hull())
-    method = DP._Hull(Hull(1e-3), vrefs)
-    DP._disaggregate_variables(model, z, vrefs, method)
-
-    # var × var → nonlinear (perspective divides by y)
-    quad_vv = @expression(model, x * y)
-    result_vv = DP.disaggregate_expression(model, quad_vv, bvref, method)
-    @test result_vv isa JuMP.GenericNonlinearExpr
-
-    # param × var → quadratic (param * disaggregated)
-    quad_pv = @expression(model, t * x)
-    result_pv = DP.disaggregate_expression(model, quad_pv, bvref, method)
-    @test result_pv isa JuMP.GenericQuadExpr
-
-    # var × param → quadratic (disaggregated * param)
-    quad_vp = @expression(model, x * t)
-    result_vp = DP.disaggregate_expression(model, quad_vp, bvref, method)
-    @test result_vp isa JuMP.GenericQuadExpr
-
-    # param × param → cubic (t * t * bvref)
-    quad_pp = @expression(model, t * t)
-    result_pp = DP.disaggregate_expression(model, quad_pp, bvref, method)
-    @test result_pp isa JuMP.GenericNonlinearExpr
 end
 
 function test_variable_properties_infiniteopt()
@@ -392,15 +355,113 @@ function test_logical_value()
 end
 
 # _collect_parameters on model with no infinite parameters.
-# Covers ext line 508.
 function test__collect_parameters_no_params()
     model = InfiniteGDPModel()
     @test_throws ErrorException IDP._collect_parameters(model)
 end
 
-# MBM with finite + integer variables in InfiniteModel. Covers
-# copy_model_with_constraints (finite var, set_integer),
-# and _build_flat_map line 252 (finite var path).
+# raw_M against an InfiniteModel where M is constant across supports.
+# Setup: x(t) ∈ [0, 10], disj1: x ≥ 5, disj2: x ≤ 3.
+# For disj1 slack r(x) = 5 - x maximized over disj2's region x ∈ [0, 3]:
+# max(5 - x) = 5 at x = 0. Same at every support ⇒ scalar M = 5.
+function test_raw_M_infinite_scalar()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, con, x >= 5, Disjunct(Y[1]))
+    @constraint(model, con2, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    mbm = DP._MBM(MBM(HiGHS.Optimizer), model)
+    sub = DP.copy_model_with_constraints(
+        model, DP.DisjunctConstraintRef[con2], mbm)
+    obj = DP.prepare_max_M_objective(
+        model, JuMP.constraint_object(con), sub)
+    @test length(obj) == 5  # K support points
+    @test DP.raw_M(sub, obj, mbm) == 5.0
+end
+
+# raw_M with a support-varying M. Setup: x(t) ∈ [0, 10], disj1: x ≤ 2t,
+# disj2: x ≥ 0.5. Slack r(x) = x - 2t maximized over x ∈ [0.5, 10]:
+# max(x - 2t) = 10 - 2t. Varies with t ⇒ raw_M returns a pfunc; the
+# underlying function should evaluate to 10 - 2t at each support.
+function test_raw_M_infinite_param_function()
+    model = InfiniteGDPModel()
+    supports = [0.0, 0.25, 0.5, 0.75, 1.0]
+    @infinite_parameter(model, t ∈ [0, 1], supports = supports)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @parameter_function(model, f == t -> 2*t)
+    @constraint(model, con, x <= f, Disjunct(Y[1]))
+    @constraint(model, con2, x >= 0.5, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    mbm = DP._MBM(MBM(HiGHS.Optimizer), model)
+    sub = DP.copy_model_with_constraints(
+        model, DP.DisjunctConstraintRef[con2], mbm)
+    obj = DP.prepare_max_M_objective(
+        model, JuMP.constraint_object(con), sub)
+    M = DP.raw_M(sub, obj, mbm)
+    @test M isa InfiniteOpt.GeneralVariableRef
+    raw_fn = InfiniteOpt.raw_function(M)
+    for t_val in supports
+        @test raw_fn(t_val) ≈ 10.0 - 2*t_val atol=1e-6
+    end
+end
+
+# extract_solution returns per-support values from the transformation
+# backend. Setup: force disj 2 active (x ≤ 3), BigM-reformulate, solve
+# min ∫x ⇒ x = 0 at every support.
+function test_extract_solution_infinite()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    K = 4
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = K)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, x >= 5, Disjunct(Y[1]))
+    @constraint(model, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    JuMP.fix(Y[2], true)  # force disj 2 active
+    @objective(model, Min, ∫(x, t))
+    DP.reformulate_model(model, BigM(10.0))
+    set_optimizer(model, HiGHS.Optimizer)
+    set_silent(model)
+    optimize!(model, ignore_optimize_hook = true)
+    sol = DP.extract_solution(model)
+    @test haskey(sol, x)
+    @test length(sol[x]) == K
+    @test all(v -> isapprox(v, 0.0; atol=1e-6), sol[x])
+end
+
+# add_cut adds one flat-sum cut to the transformation backend and marks
+# the backend ready so the next optimize! does NOT re-transcribe.
+function test_add_cut_infinite()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    K = 3
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = K)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, x >= 5, Disjunct(Y[1]))
+    @constraint(model, x <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    DP.reformulate_model(model, BigM(10.0))
+    InfiniteOpt.build_transformation_backend!(model)
+    flat = InfiniteOpt.transformation_model(model)
+    n_before = JuMP.num_constraints(flat;
+        count_variable_in_set_constraints = false)
+    rBM_sol = Dict(x => [1.0, 2.0, 3.0])
+    sep_sol = Dict(x => [0.5, 1.5, 2.5])
+    DP.add_cut(model, [x], rBM_sol, sep_sol)
+    n_after = JuMP.num_constraints(flat;
+        count_variable_in_set_constraints = false)
+    @test n_after == n_before + 1
+    # set_transformation_backend_ready(true) — next optimize! should
+    # reuse without re-transcribing (otherwise our cut would be lost)
+    @test InfiniteOpt.transformation_backend_ready(model)
+end
+
+# MBM with finite + integer variables in an InfiniteModel.
 function test_mbm_finite_and_integer_var()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
@@ -651,9 +712,9 @@ end
 function test_CuttingPlanes_with_cuts()
     # Maximization with single-constraint disjuncts where Hull
     # is strictly tighter than BigM. BigM allows x+y up to
-    # variable bounds (20), Hull limits to max(5,8)=8. This
-    # forces cuts. Finite var w exercises isempty(vprefs)
-    # branch in add_original_model_cut (line 779).
+    # variable bounds (20), Hull limits to max(5,8)=8 — this
+    # forces cuts to tighten the relaxation. Finite var w exercises
+    # the isempty(var_prefs) branch in add_cut.
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
     @infinite_parameter(model, t ∈ [0, 1], num_supports = 10)
@@ -733,7 +794,6 @@ end
     @testset "Methods" begin
         test_get_constant()
         test_disaggregate_expression_infiniteopt()
-        test_disaggregate_quad_expression_infiniteopt()
     end
 
     @testset "Internal Helpers" begin
@@ -741,6 +801,8 @@ end
     end
 
     @testset "MBM" begin
+        test_raw_M_infinite_scalar()
+        test_raw_M_infinite_param_function()
         test_mbm_finite_and_integer_var()
         test_mbm_infinite_simple()
         test_mbm_infinite_param_dependent()
@@ -754,6 +816,8 @@ end
     end
 
     @testset "Cutting Planes" begin
+        test_extract_solution_infinite()
+        test_add_cut_infinite()
         test_CuttingPlanes_infinite_simple()
         test_CuttingPlanes_infinite_two_disj()
         test_CuttingPlanes_with_cuts()

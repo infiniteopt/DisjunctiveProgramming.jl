@@ -264,8 +264,14 @@ function prepare_max_M_objective(
     return expr
 end
 
-# Solve the submodel for a single objective expression.
-# Returns a scalar M value, or nothing if infeasible.
+"""
+    raw_M(sub::GDPSubmodel, objective, method::_MBM)
+
+Maximize `objective` over `sub` to obtain one raw M value for MBM.
+Returns `max(obj_value, 0)` on optimal, `nothing` on infeasible
+(signals the constraint is redundant in the combined region), or
+`method.default_M` otherwise (unbounded, numerical failure, etc).
+"""
 function raw_M(
     sub::GDPSubmodel,
     objective::JuMP.AbstractJuMPScalar,
