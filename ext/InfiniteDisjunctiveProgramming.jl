@@ -255,7 +255,7 @@ function _build_flat_map(
     flat_map = Dict{InfiniteOpt.GeneralVariableRef, Any}()
     for (v, ws) in sub.fwd_map
         if length(ws) == 1
-            flat_map[v] = ws[1]
+            flat_map[v] = only(ws)
         else
             vp = InfiniteOpt.parameter_refs(v)
             shape = Tuple(length(supports[p]) for p in vp)
@@ -427,25 +427,31 @@ function DP.raw_M(
         end
     end
     model = JuMP.owner_model(first(keys(sub.fwd_map)))
-    return _aggregate_M_values(model, M_vals)
+    # Condense flat per-support values: scalar if uniform, else pf.
+    all(==(M_vals[1]), M_vals) && return M_vals[1]
+    prefs, supports = _collect_parameters(model)
+    grids = Tuple(supports[p] for p in prefs)
+    shape = Tuple(length(supports[p]) for p in prefs)
+    fn = Interpolations.linear_interpolation(
+        grids, reshape(M_vals, shape),
+        extrapolation_bc = Interpolations.Line())
+    return _make_parameter_function(model, fn, prefs...)
 end
 
 ################################################################################
 #                          TRANSCRIPTION HELPERS
 ################################################################################
 
-# Create a parameter function programmatically. Uses
-# build_parameter_function + add_parameter_function (the lower-level
-# API behind @parameter_function) since the macro doesn't support
-# programmatic use. The closure wrapper handles non-Function callables
-# like Interpolations.Extrapolation. Accepts any number of prefs via
-# varargs: _make_parameter_function(m, f, t) for 1D, (m, f, t, x) for 2D.
+# Replacement for @parameter_function in the case of using an interpolation.
+# Example (1D interpolation):
+#   fn = Interpolations.linear_interpolation(grids, vals)
+#   pf = _make_parameter_function(model, fn, t)  # returns a pf ref
 function _make_parameter_function(
     model::InfiniteOpt.InfiniteModel, fn,
     prefs::InfiniteOpt.GeneralVariableRef...
     )
     f = fn isa Function ? fn : ((args...) -> fn(args...))
-    pref_arg = length(prefs) == 1 ? prefs[1] : prefs
+    pref_arg = length(prefs) == 1 ? only(prefs) : prefs
     pfunc = InfiniteOpt.build_parameter_function(error, f, pref_arg)
     return InfiniteOpt.add_parameter_function(model, pfunc)
 end
@@ -462,42 +468,6 @@ function _collect_parameters(model::InfiniteOpt.InfiniteModel)
     return prefs, supports
 end
 
-# Condense flat per-support M values into a scalar or parameter function.
-function _aggregate_M_values(
-    model::InfiniteOpt.InfiniteModel,
-    vals::AbstractVector{<:Real}
-    )
-    if all(==(vals[1]), vals)
-        return vals[1]
-    end
-    prefs, supports = _collect_parameters(model)
-    return values_to_parameter_function(model, vals, prefs, supports)
-end
-
-"""
-    values_to_parameter_function(
-        model, vals, prefs, supports
-        )
-
-Interpolate flat per-support values into an InfiniteOpt parameter
-function registered on `model`. Builds a grid from `supports`,
-reshapes `vals`, fits a linear interpolation, and returns the
-registered parameter function ref.
-"""
-function values_to_parameter_function(
-    model::InfiniteOpt.InfiniteModel,
-    vals::AbstractVector{<:Real},
-    prefs::Union{Vector{InfiniteOpt.GeneralVariableRef},
-        Tuple{Vararg{InfiniteOpt.GeneralVariableRef}}},
-    supports::Dict{InfiniteOpt.GeneralVariableRef, Vector{Float64}}
-    )
-    grids = Tuple(supports[p] for p in prefs)
-    shape = Tuple(length(supports[p]) for p in prefs)
-    nd = reshape(vals, shape)
-    fn = Interpolations.linear_interpolation(grids, nd,
-        extrapolation_bc = Interpolations.Line())
-    return _make_parameter_function(model, fn, prefs...)
-end
 
 ################################################################################
 #                    CUTTING PLANES FOR INFINITEMODEL
@@ -549,46 +519,36 @@ function DP.extract_solution(model::InfiniteOpt.InfiniteModel)
     return sol
 end
 
-# Add an infinite-form cut to the InfiniteModel. Infinite variables get
-# interpolated parameter function coefficients wrapped in integrals;
-# finite variables contribute scalar terms.
+# Add a flat-sum cut directly to the transformation backend, matching
+# the SEP's unweighted Euclidean norm (Trespalacios & Grossmann 2016
+# Eq. 11 applied in the joint transcribed variable space). Then mark
+# the backend as ready so the next optimize! reuses the cut-enhanced
+# flat model without re-transcribing (which would wipe the cut).
 function DP.add_cut(
     model::InfiniteOpt.InfiniteModel,
     decision_vars::Vector{InfiniteOpt.GeneralVariableRef},
     rBM_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}},
     sep_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}}
     )
-    prefs, sups = _collect_parameters(model)
-    inf_terms = Any[]
-    cut_scalar = zero(JuMP.GenericAffExpr{
-        JuMP.value_type(typeof(model)),
-        InfiniteOpt.GeneralVariableRef})
+    flat = InfiniteOpt.transformation_model(model)
+    cut_expr = zero(JuMP.GenericAffExpr{
+        JuMP.value_type(typeof(flat)),
+        JuMP.variable_ref_type(flat)})
     for var in decision_vars
         haskey(rBM_sol, var) || continue
         haskey(sep_sol, var) || continue
-        vprefs = InfiniteOpt.parameter_refs(var)
-        if isempty(vprefs)
-            xi = 2 * (sep_sol[var][1] - rBM_sol[var][1])
-            cut_scalar += xi * (var - sep_sol[var][1])
-        else
-            xi_vals = 2 .* (sep_sol[var] .- rBM_sol[var])
-            sp_vals = sep_sol[var]
-            xi_pf = values_to_parameter_function(
-                model, xi_vals, vprefs, sups)
-            sp_pf = values_to_parameter_function(
-                model, sp_vals, vprefs, sups)
-            push!(inf_terms, xi_pf * var - xi_pf * sp_pf)
+        rbm_vals = rBM_sol[var]
+        sep_vals = sep_sol[var]
+        tv = InfiniteOpt.transformation_variable(var)
+        flat_vars = tv isa AbstractArray ? vec(tv) : [tv]
+        for k in eachindex(flat_vars)
+            xi = 2 * (sep_vals[k] - rbm_vals[k])
+            JuMP.add_to_expression!(cut_expr, xi, flat_vars[k])
+            JuMP.add_to_expression!(cut_expr, -xi * sep_vals[k])
         end
     end
-    if !isempty(inf_terms)
-        inf_expr = JuMP.@expression(model, sum(inf_terms))
-        for p in prefs
-            inf_expr = InfiniteOpt.integral(inf_expr, p)
-        end
-        cut_scalar += inf_expr
-    end
-    cref = JuMP.@constraint(model, cut_scalar >= 0)
-    push!(DP._reformulation_constraints(model), cref)
+    JuMP.@constraint(flat, cut_expr >= 0)
+    InfiniteOpt.set_transformation_backend_ready(model, true)
     return
 end
 
