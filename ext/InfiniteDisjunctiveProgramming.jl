@@ -282,7 +282,9 @@ end
 
 # Translate the constraint slack to the mini InfiniteModel via ref_map,
 # then use InfiniteOpt.transformation_expression to get one JuMP scalar
-# (or plain Real, for pure-parameter slacks) per support point.
+# per support point. Narrows the declared Vector{Union{Real, …}} return
+# to Vector{AbstractJuMPScalar}; errors loudly if a support gives a
+# pure-constant slack (would require a degenerate disjunct constraint).
 function DP.prepare_max_M_objective(
     ::InfiniteOpt.InfiniteModel,
     obj::JuMP.ScalarConstraint{T, S},
@@ -290,7 +292,8 @@ function DP.prepare_max_M_objective(
     ) where {T, S <: _MOI.LessThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
     mini_expr = DP._replace_variables_in_constraint(obj.func, ref_map)
-    return InfiniteOpt.transformation_expression(mini_expr - obj.set.upper)
+    return Vector{JuMP.AbstractJuMPScalar}(
+        InfiniteOpt.transformation_expression(mini_expr - obj.set.upper))
 end
 
 function DP.prepare_max_M_objective(
@@ -300,21 +303,17 @@ function DP.prepare_max_M_objective(
     ) where {T, S <: _MOI.GreaterThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
     mini_expr = DP._replace_variables_in_constraint(obj.func, ref_map)
-    return InfiniteOpt.transformation_expression(obj.set.lower - mini_expr)
+    return Vector{JuMP.AbstractJuMPScalar}(
+        InfiniteOpt.transformation_expression(obj.set.lower - mini_expr))
 end
-
-# Real dispatch: pure-parameter slacks collapse to a constant at that
-# support. Mirrors the max(value, 0) semantics of the scalar base.
-DP.raw_M(::DP.GDPSubmodel, obj::Real, method::DP._MBM) =
-    max(obj, zero(method.default_M))
 
 # Solve the submodel for a vector of objectives (one per support point).
 # Clears start values before each solve (Gurobi refuses NaN warmstarts
 # that can linger from a prior unbounded solve) and delegates each
-# element to the scalar base `raw_M` above.
+# element to the scalar base `raw_M`.
 function DP.raw_M(
     sub::DP.GDPSubmodel,
-    objectives::Vector{<:Union{Real, JuMP.AbstractJuMPScalar}},
+    objectives::Vector{<:JuMP.AbstractJuMPScalar},
     method::DP._MBM
     )
     M_vals = typeof(method.default_M)[]

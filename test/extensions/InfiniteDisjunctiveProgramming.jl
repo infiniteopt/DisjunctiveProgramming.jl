@@ -55,7 +55,7 @@ function test_infinite_logical()
     @test binary_variable(y) isa InfiniteOpt.GeneralVariableRef
 end
 
-function test__is_parameter()
+function test_is_parameter()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s[1:2] ∈ [0, 1], independent = true)
@@ -80,19 +80,29 @@ end
 # _is_parameter on unwrapped concrete dispatch types
 # (DependentParameterRef, IndependentParameterRef, FiniteParameterRef,
 # ParameterFunctionRef, Any fallback).
-function test__is_parameter_concrete_dispatches()
+function test_is_parameter_concrete_dispatches()
     model = InfiniteGDPModel()
+    # Scalar + `independent = true` array both give IndependentParameterRef;
+    # a default array parameter gives DependentParameterRef.
     @infinite_parameter(model, t ∈ [0, 1])
     @infinite_parameter(model, s[1:2] ∈ [0, 1], independent = true)
+    @infinite_parameter(model, q[1:2] ∈ [0, 1])
     @finite_parameter(model, p == 1.0)
     @variable(model, x, Infinite(t))
     @parameter_function(model, pf == t -> 2*t)
     dvr = InfiniteOpt.dispatch_variable_ref
-    @test IDP._is_parameter(dvr(t)) == true      # Dependent
-    @test IDP._is_parameter(dvr(s[1])) == true    # Independent
-    @test IDP._is_parameter(dvr(p)) == true       # Finite
-    @test IDP._is_parameter(dvr(pf)) == true      # ParamFunc
-    @test IDP._is_parameter(dvr(x)) == false      # Any
+    # Verify each ref hits the intended dispatch.
+    @test dvr(t) isa InfiniteOpt.IndependentParameterRef
+    @test dvr(s[1]) isa InfiniteOpt.IndependentParameterRef
+    @test dvr(q[1]) isa InfiniteOpt.DependentParameterRef
+    @test dvr(p) isa InfiniteOpt.FiniteParameterRef
+    @test dvr(pf) isa InfiniteOpt.ParameterFunctionRef
+    @test IDP._is_parameter(dvr(t)) == true
+    @test IDP._is_parameter(dvr(s[1])) == true
+    @test IDP._is_parameter(dvr(q[1])) == true
+    @test IDP._is_parameter(dvr(p)) == true
+    @test IDP._is_parameter(dvr(pf)) == true
+    @test IDP._is_parameter(dvr(x)) == false    # Any fallback
 end
 
 function test_requires_disaggregation()
@@ -355,7 +365,7 @@ function test_logical_value()
 end
 
 # _collect_parameters on model with no infinite parameters.
-function test__collect_parameters_no_params()
+function test_collect_parameters_no_params()
     model = InfiniteGDPModel()
     @test_throws ErrorException IDP._collect_parameters(model)
 end
@@ -769,8 +779,8 @@ end
 
     @testset "Variables" begin
         test_infinite_logical()
-        test__is_parameter()
-        test__is_parameter_concrete_dispatches()
+        test_is_parameter()
+        test_is_parameter_concrete_dispatches()
         test_requires_disaggregation()
         test_variable_properties_infiniteopt()
         test_variable_properties_from_expr()
@@ -797,7 +807,7 @@ end
     end
 
     @testset "Internal Helpers" begin
-        test__collect_parameters_no_params()
+        test_collect_parameters_no_params()
     end
 
     @testset "MBM" begin
