@@ -173,35 +173,9 @@ end
 ################################################################################
 #                          MBM FOR INFINITEMODEL
 ################################################################################
-# Reuses the finite MBM infrastructure by overriding:
-# copy_model_with_constraints (build mini InfiniteModel, transcribe to
-# flat JuMP, stash mini + main->mini ref_map in sub.model.ext),
-# prepare_max_M_objective (translate main-model slack expr to mini-level
-# then call InfiniteOpt.transformation_expression to get K flat
-# objectives), and raw_M (vector dispatch aggregates K per-support M
-# values into a parameter function).
 
-# Collect all parameter function refs from all disjunct constraints in
-# the model.
-function _all_param_functions(model::InfiniteOpt.InfiniteModel)
-    param_funcs = Set{InfiniteOpt.GeneralVariableRef}()
-    for (_, crefs) in DP._indicator_to_constraints(model)
-        for cref in crefs
-            cref isa DP.DisjunctConstraintRef || continue
-            con = JuMP.constraint_object(cref)
-            for v in InfiniteOpt.all_expression_variables(con.func)
-                dispatch_var = InfiniteOpt.dispatch_variable_ref(v)
-                if dispatch_var isa InfiniteOpt.ParameterFunctionRef
-                    push!(param_funcs, v)
-                end
-            end
-        end
-    end
-    return param_funcs
-end
-
-# Build mini InfiniteModel with only the given disjunct constraints,
-# transcribe to flat JuMP model, return GDPSubmodel with forward map.
+# Build a mini InfiniteModel holding only the given disjunct constraints,
+# transcribe it, and return as a GDPSubmodel.
 function DP.copy_model_with_constraints(
     model::InfiniteOpt.InfiniteModel,
     constraints::Vector{<:DP.DisjunctConstraintRef},
@@ -242,10 +216,8 @@ function DP.copy_model_with_constraints(
         ref_map[d] = new_d
     end
 
-    # 4. Copy parameter functions from ALL disjuncts (needed for
-    # constraint transcription)
-    param_funcs = _all_param_functions(model)
-    for pfunc in param_funcs
+    # 4. Copy parameter functions (needed by ref_map substitution)
+    for pfunc in InfiniteOpt.all_parameter_functions(model)
         func = InfiniteOpt.raw_function(pfunc)
         prefs = InfiniteOpt.parameter_refs(pfunc)
         mapped_prefs = Tuple(ref_map[p] for p in prefs)
@@ -262,29 +234,20 @@ function DP.copy_model_with_constraints(
         JuMP.@constraint(mini, new_func * T in con.set)
     end
 
-    # 6. Transcribe mini InfiniteModel to flat JuMP model
+    # 6. Transcribe mini InfiniteModel
     InfiniteOpt.build_transformation_backend!(mini)
-    flat = InfiniteOpt.transformation_model(mini)
-    JuMP.set_optimizer(flat, method.optimizer)
-    JuMP.set_silent(flat)
-    # Stash main + ref_map so prepare_max_M_objective can translate
-    # main-model expressions and let InfiniteOpt transcribe them via
-    # mini's backend. Also stash main so raw_M can return a parameter
-    # function on main (where it will be used in BigM constraints).
-    flat.ext[:inf_mbm_main] = model
-    flat.ext[:inf_mbm_ref_map] = ref_map
-    # fwd_map / decision_vars are CP-shaped fields on GDPSubmodel that
-    # the MBM path through our overrides does not consult; pass empty
-    # containers of the right types.
-    return DP.GDPSubmodel(flat, InfiniteOpt.GeneralVariableRef[],
+    transcribed = InfiniteOpt.transformation_model(mini)
+    JuMP.set_optimizer(transcribed, method.optimizer)
+    JuMP.set_silent(transcribed)
+    # Stash for prepare_max_M_objective / raw_M.
+    transcribed.ext[:inf_mbm_main] = model
+    transcribed.ext[:inf_mbm_ref_map] = ref_map
+    # GDPSubmodel's fwd_map / decision_vars are CP-only; unused here.
+    return DP.GDPSubmodel(transcribed, InfiniteOpt.GeneralVariableRef[],
         Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}())
 end
 
-# Translate the constraint slack to the mini InfiniteModel via ref_map,
-# then use InfiniteOpt.transformation_expression to get one JuMP scalar
-# per support point. Narrows the declared Vector{Union{Real, …}} return
-# to Vector{AbstractJuMPScalar}; errors loudly if a support gives a
-# pure-constant slack (would require a degenerate disjunct constraint).
+# Return one pointwise slack per support.
 function DP.prepare_max_M_objective(
     ::InfiniteOpt.InfiniteModel,
     obj::JuMP.ScalarConstraint{T, S},
@@ -307,10 +270,8 @@ function DP.prepare_max_M_objective(
         InfiniteOpt.transformation_expression(obj.set.lower - mini_expr))
 end
 
-# Solve the submodel for a vector of objectives (one per support point).
-# Clears start values before each solve (Gurobi refuses NaN warmstarts
-# that can linger from a prior unbounded solve) and delegates each
-# element to the scalar base `raw_M`.
+# Per-support solve, delegating to scalar base raw_M. Aggregated to a
+# scalar if uniform, else to a parameter function.
 function DP.raw_M(
     sub::DP.GDPSubmodel,
     objectives::Vector{<:JuMP.AbstractJuMPScalar},
@@ -326,9 +287,9 @@ function DP.raw_M(
     model = sub.model.ext[:inf_mbm_main]
     # Condense per-support values: scalar if uniform, else pfunc.
     all(==(M_vals[1]), M_vals) && return M_vals[1]
-    prefs, supports = _collect_parameters(model)
-    grids = Tuple(supports[p] for p in prefs)
-    shape = Tuple(length(supports[p]) for p in prefs)
+    prefs = InfiniteOpt.all_parameters(model)
+    grids = Tuple(Float64.(InfiniteOpt.supports(p)) for p in prefs)
+    shape = Tuple(length.(grids))
     func = Interpolations.linear_interpolation(grids, reshape(M_vals, shape),
         extrapolation_bc = Interpolations.Line())
     return _make_parameter_function(model, func, prefs...)
@@ -353,25 +314,12 @@ function _make_parameter_function(
     return InfiniteOpt.add_parameter_function(model, builder)
 end
 
-# Collect all infinite parameters and their supports from the model.
-function _collect_parameters(model::InfiniteOpt.InfiniteModel)
-    params = collect(InfiniteOpt.all_parameters(model))
-    if isempty(params)
-        error("Model has no infinite parameters.")
-    end
-    prefs = InfiniteOpt.GeneralVariableRef[p for p in params]
-    supports = Dict{InfiniteOpt.GeneralVariableRef, Vector{Float64}}(
-        p => Float64.(InfiniteOpt.supports(p)) for p in prefs)
-    return prefs, supports
-end
-
-
 ################################################################################
 #                    CUTTING PLANES FOR INFINITEMODEL
 ################################################################################
 
-# Build CP subproblem: reformulate the InfiniteModel in-place, transcribe
-# to a flat JuMP copy, and wrap in GDPSubmodel with forward variable map.
+# Build CP subproblem: reformulate the InfiniteModel in-place, transcribe,
+# copy, and wrap in GDPSubmodel with forward variable map.
 function DP.copy_and_reformulate(
     model::InfiniteOpt.InfiniteModel,
     decision_vars::Vector{InfiniteOpt.GeneralVariableRef},
@@ -380,7 +328,7 @@ function DP.copy_and_reformulate(
     )
     DP.reformulate_model(model, reform_method)
     InfiniteOpt.build_transformation_backend!(model)
-    flat = InfiniteOpt.transformation_model(model)
+    transcribed = InfiniteOpt.transformation_model(model)
     transcription_fwd = Dict{InfiniteOpt.GeneralVariableRef,
         Vector{JuMP.VariableRef}}()
     for v in DP.collect_all_vars(model)
@@ -389,11 +337,11 @@ function DP.copy_and_reformulate(
         transcription_fwd[v] = isempty(var_prefs) ?
             [transcription_var] : vec(transcription_var)
     end
-    sub_copy, copy_map = JuMP.copy_model(flat)
+    sub_copy, copy_map = JuMP.copy_model(transcribed)
     fwd_map = Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}()
     for v in decision_vars
         haskey(transcription_fwd, v) || continue
-        fwd_map[v] = [copy_map[flat_var] for flat_var in transcription_fwd[v]]
+        fwd_map[v] = [copy_map[transcribed_var] for transcribed_var in transcription_fwd[v]]
     end
     sub = DP.GDPSubmodel(sub_copy, decision_vars, fwd_map)
     JuMP.set_optimizer(sub.model, method.optimizer)
@@ -401,8 +349,7 @@ function DP.copy_and_reformulate(
     return sub
 end
 
-# Extract per-support-point solutions from the InfiniteOpt transformation
-# backend after optimize!(model, ignore_optimize_hook=true).
+# Read per-support values from the transformation backend.
 function DP.extract_solution(model::InfiniteOpt.InfiniteModel)
     dvars = DP.collect_cutting_planes_vars(model)
     V = eltype(dvars)
@@ -417,36 +364,33 @@ function DP.extract_solution(model::InfiniteOpt.InfiniteModel)
     return sol
 end
 
-# Add a flat-sum cut directly to the transformation backend, matching
-# the SEP's unweighted Euclidean norm (Trespalacios & Grossmann 2016
-# Eq. 11 applied in the joint transcribed variable space). Then mark
-# the backend as ready so the next optimize! reuses the cut-enhanced
-# flat model without re-transcribing (which would wipe the cut).
+# Add a pointwise-sum cut directly to the transformation backend and mark
+# it ready so the next optimize! doesn't re-transcribe and wipe the cut.
 function DP.add_cut(
     model::InfiniteOpt.InfiniteModel,
     decision_vars::Vector{InfiniteOpt.GeneralVariableRef},
     rBM_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}},
     sep_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}}
     )
-    flat = InfiniteOpt.transformation_model(model)
+    transcribed = InfiniteOpt.transformation_model(model)
     cut_expr = zero(JuMP.GenericAffExpr{
-        JuMP.value_type(typeof(flat)),
-        JuMP.variable_ref_type(flat)})
+        JuMP.value_type(typeof(transcribed)),
+        JuMP.variable_ref_type(transcribed)})
     for var in decision_vars
         haskey(rBM_sol, var) || continue
         haskey(sep_sol, var) || continue
         rbm_vals = rBM_sol[var]
         sep_vals = sep_sol[var]
         transcription_var = InfiniteOpt.transformation_variable(var)
-        flat_vars = transcription_var isa AbstractArray ?
+        transcribed_vars = transcription_var isa AbstractArray ?
             vec(transcription_var) : [transcription_var]
-        for k in eachindex(flat_vars)
+        for k in eachindex(transcribed_vars)
             xi = 2 * (sep_vals[k] - rbm_vals[k])
-            JuMP.add_to_expression!(cut_expr, xi, flat_vars[k])
+            JuMP.add_to_expression!(cut_expr, xi, transcribed_vars[k])
             JuMP.add_to_expression!(cut_expr, -xi * sep_vals[k])
         end
     end
-    JuMP.@constraint(flat, cut_expr >= 0)
+    JuMP.@constraint(transcribed, cut_expr >= 0)
     InfiniteOpt.set_transformation_backend_ready(model, true)
     return
 end

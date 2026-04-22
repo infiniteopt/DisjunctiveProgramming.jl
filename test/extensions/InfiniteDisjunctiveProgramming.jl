@@ -364,12 +364,6 @@ function test_logical_value()
     @test eltype(val) == Bool
 end
 
-# _collect_parameters on model with no infinite parameters.
-function test_collect_parameters_no_params()
-    model = InfiniteGDPModel()
-    @test_throws ErrorException IDP._collect_parameters(model)
-end
-
 # raw_M against an InfiniteModel where M is constant across supports.
 # Setup: x(t) ∈ [0, 10], disj1: x ≥ 5, disj2: x ≤ 3.
 # For disj1 slack r(x) = 5 - x maximized over disj2's region x ∈ [0, 3]:
@@ -443,8 +437,8 @@ function test_extract_solution_infinite()
     @test all(v -> isapprox(v, 0.0; atol=1e-6), sol[x])
 end
 
-# add_cut adds one flat-sum cut to the transformation backend and marks
-# the backend ready so the next optimize! does NOT re-transcribe.
+# add_cut adds one pointwise-sum cut to the transformation backend and
+# marks the backend ready so the next optimize! does NOT re-transcribe.
 function test_add_cut_infinite()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
@@ -457,13 +451,13 @@ function test_add_cut_infinite()
     @disjunction(model, Y)
     DP.reformulate_model(model, BigM(10.0))
     InfiniteOpt.build_transformation_backend!(model)
-    flat = InfiniteOpt.transformation_model(model)
-    n_before = JuMP.num_constraints(flat;
+    transcribed = InfiniteOpt.transformation_model(model)
+    n_before = JuMP.num_constraints(transcribed;
         count_variable_in_set_constraints = false)
     rBM_sol = Dict(x => [1.0, 2.0, 3.0])
     sep_sol = Dict(x => [0.5, 1.5, 2.5])
     DP.add_cut(model, [x], rBM_sol, sep_sol)
-    n_after = JuMP.num_constraints(flat;
+    n_after = JuMP.num_constraints(transcribed;
         count_variable_in_set_constraints = false)
     @test n_after == n_before + 1
     # set_transformation_backend_ready(true) — next optimize! should
@@ -804,10 +798,6 @@ end
     @testset "Methods" begin
         test_get_constant()
         test_disaggregate_expression_infiniteopt()
-    end
-
-    @testset "Internal Helpers" begin
-        test_collect_parameters_no_params()
     end
 
     @testset "MBM" begin
