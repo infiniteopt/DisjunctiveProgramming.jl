@@ -247,7 +247,6 @@ function DP.copy_model_with_constraints(
         Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}())
 end
 
-# Return one pointwise slack per support.
 function DP.prepare_max_M_objective(
     ::InfiniteOpt.InfiniteModel,
     obj::JuMP.ScalarConstraint{T, S},
