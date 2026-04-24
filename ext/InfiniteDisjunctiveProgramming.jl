@@ -221,8 +221,12 @@ function DP.copy_model_with_constraints(
         func = InfiniteOpt.raw_function(pfunc)
         prefs = InfiniteOpt.parameter_refs(pfunc)
         mapped_prefs = Tuple(ref_map[p] for p in prefs)
-        new_pfunc = _make_parameter_function(mini, func, mapped_prefs...)
-        ref_map[pfunc] = new_pfunc
+        pref_arg = length(mapped_prefs) == 1 ?
+            only(mapped_prefs) : mapped_prefs
+        param_func = InfiniteOpt.build_parameter_function(
+            error, func, pref_arg)
+        ref_map[pfunc] = InfiniteOpt.add_parameter_function(
+            mini, param_func)
     end
 
     # 5. Add disjunct constraints using existing ref_map
@@ -253,9 +257,10 @@ function DP.prepare_max_M_objective(
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = DP._replace_variables_in_constraint(obj.func, ref_map)
-    return Vector{JuMP.AbstractJuMPScalar}(
-        InfiniteOpt.transformation_expression(mini_expr - obj.set.upper))
+    mini_expr = DP._replace_variables_in_constraint(
+        obj.func, ref_map) - obj.set.upper
+    sub.model.ext[:inf_mbm_obj_expr] = obj.func
+    return InfiniteOpt.transformation_expression(mini_expr)
 end
 
 function DP.prepare_max_M_objective(
@@ -264,53 +269,35 @@ function DP.prepare_max_M_objective(
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = DP._replace_variables_in_constraint(obj.func, ref_map)
-    return Vector{JuMP.AbstractJuMPScalar}(
-        InfiniteOpt.transformation_expression(obj.set.lower - mini_expr))
+    mini_expr = obj.set.lower - DP._replace_variables_in_constraint(
+        obj.func, ref_map)
+    sub.model.ext[:inf_mbm_obj_expr] = obj.func
+    return InfiniteOpt.transformation_expression(mini_expr)
 end
 
 # Per-support solve, delegating to scalar base raw_M. Aggregated to a
 # scalar if uniform, else to a parameter function.
 function DP.raw_M(
     sub::DP.GDPSubmodel,
-    objectives::Vector{<:JuMP.AbstractJuMPScalar},
+    objectives::AbstractArray{<:Union{JuMP.AbstractJuMPScalar, Real}},
     method::DP._MBM
     )
-    M_vals = typeof(method.default_M)[]
-    for obj_expr in objectives
+    M_vals = similar(objectives, typeof(method.default_M))
+    for I in eachindex(objectives)
         JuMP.set_start_value.(JuMP.all_variables(sub.model), nothing)
-        m = DP.raw_M(sub, obj_expr, method)
+        m = DP.raw_M(sub, objectives[I], method)
         m === nothing && return nothing
-        push!(M_vals, m)
+        M_vals[I] = m
     end
-    model = sub.model.ext[:inf_mbm_main]
-    # Condense per-support values: scalar if uniform, else pfunc.
-    all(==(M_vals[1]), M_vals) && return M_vals[1]
-    prefs = InfiniteOpt.all_parameters(model)
-    grids = Tuple(Float64.(InfiniteOpt.supports(p)) for p in prefs)
-    shape = Tuple(length.(grids))
-    func = Interpolations.linear_interpolation(grids, reshape(M_vals, shape),
-        extrapolation_bc = Interpolations.Line())
-    return _make_parameter_function(model, func, prefs...)
-end
-
-################################################################################
-#                          TRANSCRIPTION HELPERS
-################################################################################
-
-# Replacement for @parameter_function in the case of using an interpolation.
-# Example (1D interpolation):
-#   func = Interpolations.linear_interpolation(grids, vals)
-#   pfunc = _make_parameter_function(model, func, t)  # returns a pfunc ref
-function _make_parameter_function(
-    model::InfiniteOpt.InfiniteModel, func,
-    prefs::InfiniteOpt.GeneralVariableRef...
-    )
-    wrapped_func = func isa Function ? func : ((args...) -> func(args...))
-    pref_arg = length(prefs) == 1 ? only(prefs) : prefs
-    builder = InfiniteOpt.build_parameter_function(
-        error, wrapped_func, pref_arg)
-    return InfiniteOpt.add_parameter_function(model, builder)
+    all(==(first(M_vals)), M_vals) && return first(M_vals)
+    main = sub.model.ext[:inf_mbm_main]
+    expr = sub.model.ext[:inf_mbm_obj_expr]
+    prefs = InfiniteOpt.parameter_refs(expr)
+    grids = Tuple(InfiniteOpt.supports(p) for p in prefs)
+    interp = Interpolations.linear_interpolation(grids, M_vals)
+    param_func = InfiniteOpt.build_parameter_function(
+        error, (args...) -> interp(args...), prefs)
+    return InfiniteOpt.add_parameter_function(main, param_func)
 end
 
 ################################################################################
