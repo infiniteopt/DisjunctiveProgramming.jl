@@ -9,19 +9,6 @@ function _copy_model(
 end
 
 """
-    extract_solution(sub::GDPSubmodel)
-
-Read the primal solution of `sub.model` after a solve, keyed by the
-parent-model decision variables via `sub.fwd_map`. Shape follows
-`fwd_map` values: `Vector`-valued fwd_maps (CP/MBM) yield per-support
-`Vector`s; scalar fwd_maps (LOA feas) yield scalars.
-"""
-function extract_solution(sub::GDPSubmodel)
-    return Dict(
-        var => JuMP.value.(sub.fwd_map[var]) for var in sub.decision_vars)
-end
-
-"""
     copy_and_reformulate(model, decision_vars, reform_method, method)
 
 Copy the GDP model, reformulate the copy with `reform_method`,

@@ -8,17 +8,25 @@ function collect_cutting_planes_vars(model::JuMP.AbstractModel)
     return collect_all_vars(model)
 end
 
-# Read primal values from a solved model. Returns
-# `Dict{var, Vector{value}}` — per-support shape uniformly: finite
-# models trivially have one "support" (length-1 Vector), the
-# InfiniteOpt extension overrides this dispatch to populate
-# multi-support Vectors. Skips fixed vars.
+# Extract solution from a solved model (in-place). Extensions
+# override for models where values live on a backend.
 function extract_solution(model::JuMP.AbstractModel)
     dvars = collect_cutting_planes_vars(model)
     V = eltype(dvars)
     T = JuMP.value_type(typeof(model))
     return Dict{V, Vector{T}}(
-        v => [JuMP.value(v)] for v in dvars if !JuMP.is_fixed(v))
+        v => [JuMP.value(v)] for v in dvars)
+end
+
+# Extract solution from a GDPSubmodel (SEP path).
+function extract_solution(sub::GDPSubmodel)
+    V = eltype(sub.decision_vars)
+    T = JuMP.value_type(typeof(sub.model))
+    sol = Dict{V, Vector{T}}()
+    for var in sub.decision_vars
+        sol[var] = JuMP.value.(sub.fwd_map[var])
+    end
+    return sol
 end
 
 # Set quadratic separation objective: min Σ (x_k - rBM_k)².
