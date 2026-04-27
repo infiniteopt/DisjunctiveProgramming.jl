@@ -146,7 +146,7 @@ function test_cp_cut_generation()
     JuMP.set_silent(model)
     relaxed = DP.relax_logical_vars(model)
     optimize!(model, ignore_optimize_hook = true)
-    rBM_sol = DP.extract_solution(model)
+    rBM_sol = DP._cp_per_support(DP.extract_solution(model))
 
     # Solve SEP
     DP._set_separation_objective(separation, rBM_sol)
@@ -168,7 +168,7 @@ function test_cp_cut_generation()
     # Re-solve with cut → should tighten
     optimize!(model, ignore_optimize_hook = true)
     rBM_sol2 = DP.extract_solution(model)
-    @test rBM_sol2[x][1] ≈ 4.0 atol = 0.1
+    @test rBM_sol2[x] ≈ 4.0 atol = 0.1
 
     DP.unrelax_logical_vars(relaxed)
 end

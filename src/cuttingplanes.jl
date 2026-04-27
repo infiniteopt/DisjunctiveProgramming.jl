@@ -8,25 +8,17 @@ function collect_cutting_planes_vars(model::JuMP.AbstractModel)
     return collect_all_vars(model)
 end
 
-# Extract solution from a solved model (in-place). Extensions
-# override for models where values live on a backend.
+# Read primal values from a solved model. Returns a scalar-valued
+# `Dict{var, value}`, skipping fixed vars. CP callers wrap to
+# per-support `Vector` shape via `_cp_per_support`. The InfiniteOpt
+# extension overrides this dispatch to give per-support `Vector`
+# values directly.
 function extract_solution(model::JuMP.AbstractModel)
     dvars = collect_cutting_planes_vars(model)
     V = eltype(dvars)
     T = JuMP.value_type(typeof(model))
-    return Dict{V, Vector{T}}(
-        v => [JuMP.value(v)] for v in dvars)
-end
-
-# Extract solution from a GDPSubmodel (SEP path).
-function extract_solution(sub::GDPSubmodel)
-    V = eltype(sub.decision_vars)
-    T = JuMP.value_type(typeof(sub.model))
-    sol = Dict{V, Vector{T}}()
-    for var in sub.decision_vars
-        sol[var] = JuMP.value.(sub.fwd_map[var])
-    end
-    return sol
+    return Dict{V, T}(
+        v => JuMP.value(v) for v in dvars if !JuMP.is_fixed(v))
 end
 
 # Set quadratic separation objective: min Σ (x_k - rBM_k)².
@@ -113,7 +105,7 @@ function reformulate_model(
     # Cutting plane loop: rBM <-> SEP until convergence
     for iter in 1:method.max_iter
         JuMP.optimize!(model, ignore_optimize_hook = true)
-        rBM_sol = extract_solution(model)
+        rBM_sol = _cp_per_support(extract_solution(model))
         separation_obj, separation_sol = _solve_separation(separation, rBM_sol)
         if separation_obj <= method.seperation_tolerance
             break
@@ -126,6 +118,13 @@ function reformulate_model(
     _set_ready_to_optimize(model, true)
     return
 end
+
+# Wrap scalar `extract_solution(model)` values into 1-element
+# `Vector`s — uniform per-support shape that the CP loop expects.
+# `Vector` values (from the InfiniteOpt extension's per-support read)
+# pass through unchanged.
+_cp_per_support(point::AbstractDict) =
+    Dict(v => val isa AbstractVector ? val : [val] for (v, val) in point)
 
 ################################################################################
 #                              ERROR MESSAGES
