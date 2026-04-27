@@ -282,7 +282,7 @@ function DP.raw_M(
     objectives::AbstractArray{<:Union{JuMP.AbstractJuMPScalar, Real}},
     method::DP._MBM
     )
-    M_vals = similar(objectives, typeof(method.default_M))
+    M_vals = Array{typeof(method.default_M)}(undef, size(objectives))
     for I in eachindex(objectives)
         JuMP.set_start_value.(JuMP.all_variables(sub.model), nothing)
         m = DP.raw_M(sub, objectives[I], method)
