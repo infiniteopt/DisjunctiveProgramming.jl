@@ -250,7 +250,7 @@ function prepare_max_M_objective(
     sub::GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = -obj.set.upper + _replace_variables_in_constraint(obj.func, flat_map)
+    expr = -obj.set.upper + replace_variables_in_constraint(obj.func, flat_map)
     return expr
 end
 
@@ -260,7 +260,7 @@ function prepare_max_M_objective(
     sub::GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = obj.set.lower - _replace_variables_in_constraint(obj.func, flat_map)
+    expr = obj.set.lower - replace_variables_in_constraint(obj.func, flat_map)
     return expr
 end
 
@@ -462,7 +462,7 @@ function copy_model_with_constraints(
     for cref in constraints
         con = JuMP.constraint_object(cref)
         flat_map = Dict(v => only(ws) for (v, ws) in fwd_map)
-        expr = _replace_variables_in_constraint(con.func, flat_map)
+        expr = replace_variables_in_constraint(con.func, flat_map)
         T = one(JuMP.value_type(typeof(sub_model)))
         JuMP.@constraint(sub_model, expr * T in con.set)
     end
@@ -480,7 +480,7 @@ end
 # Replace variable refs in an expression using a map. Uses AbstractDict
 # because the InfiniteModel MBM path maps decision vars to VariableRefs
 # and parameter functions to Numbers in the same dict (via _build_flat_map).
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::JuMP.AbstractVariableRef,
     var_map::AbstractDict
     )
@@ -501,7 +501,7 @@ function _var_ref_type(
     return V
 end
 
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::T, var_map::AbstractDict
     ) where {T <: JuMP.GenericAffExpr}
     C = JuMP.value_type(T)
@@ -514,7 +514,7 @@ function _replace_variables_in_constraint(
     return new_aff
 end
 
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::T, var_map::AbstractDict
     ) where {T <: JuMP.GenericQuadExpr}
     C = JuMP.value_type(T)
@@ -524,23 +524,23 @@ function _replace_variables_in_constraint(
         JuMP.add_to_expression!(new_quad,
             coef * var_map[vars.a] * var_map[vars.b])
     end
-    new_aff = _replace_variables_in_constraint(fun.aff, var_map)
+    new_aff = replace_variables_in_constraint(fun.aff, var_map)
     JuMP.add_to_expression!(new_quad, new_aff)
     return new_quad
 end
 
-function _replace_variables_in_constraint(fun::Number, var_map::AbstractDict)
+function replace_variables_in_constraint(fun::Number, var_map::AbstractDict)
     return fun
 end
 
-function _replace_variables_in_constraint(fun::T,
+function replace_variables_in_constraint(fun::T,
     var_map::AbstractDict) where {T <: JuMP.GenericNonlinearExpr}
-    new_args = Any[_replace_variables_in_constraint(
+    new_args = Any[replace_variables_in_constraint(
         arg, var_map) for arg in fun.args]
     return T(fun.head, new_args)
 end
 
-function _replace_variables_in_constraint(fun::Vector, var_map::AbstractDict)
-    return [_replace_variables_in_constraint(expr,
+function replace_variables_in_constraint(fun::Vector, var_map::AbstractDict)
+    return [replace_variables_in_constraint(expr,
         var_map) for expr in fun]
 end

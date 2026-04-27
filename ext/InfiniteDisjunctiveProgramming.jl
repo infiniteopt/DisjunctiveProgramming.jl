@@ -233,7 +233,7 @@ function DP.copy_model_with_constraints(
     for cref in constraints
         cref isa DP.DisjunctConstraintRef || continue
         con = JuMP.constraint_object(cref)
-        new_func = DP._replace_variables_in_constraint(con.func, ref_map)
+        new_func = DP.replace_variables_in_constraint(con.func, ref_map)
         T = one(JuMP.value_type(typeof(mini)))
         JuMP.@constraint(mini, new_func * T in con.set)
     end
@@ -257,7 +257,7 @@ function DP.prepare_max_M_objective(
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = DP._replace_variables_in_constraint(
+    mini_expr = DP.replace_variables_in_constraint(
         obj.func, ref_map) - obj.set.upper
     sub.model.ext[:inf_mbm_obj_expr] = obj.func
     return InfiniteOpt.transformation_expression(mini_expr)
@@ -269,7 +269,7 @@ function DP.prepare_max_M_objective(
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
     ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = obj.set.lower - DP._replace_variables_in_constraint(
+    mini_expr = obj.set.lower - DP.replace_variables_in_constraint(
         obj.func, ref_map)
     sub.model.ext[:inf_mbm_obj_expr] = obj.func
     return InfiniteOpt.transformation_expression(mini_expr)

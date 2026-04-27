@@ -27,7 +27,7 @@ function test__var_ref_type_numeric_map()
     @test DP._var_ref_type(typeof(aff), var_map) == VariableRef
 end
 
-# _replace_variables_in_constraint with QuadExpr where var_map
+# replace_variables_in_constraint with QuadExpr where var_map
 # maps some vars to Numbers. Covers lines 569, 571, 574.
 function test__replace_variables_quad_numeric_map()
     model = Model()
@@ -38,21 +38,21 @@ function test__replace_variables_quad_numeric_map()
 
     # both Number (line 569)
     map1 = Dict{VariableRef, Any}(x[1] => 2.0, x[2] => 3.0)
-    result1 = DP._replace_variables_in_constraint(quad1, map1)
+    result1 = DP.replace_variables_in_constraint(quad1, map1)
     @test result1.aff.constant ≈ 6.0
 
     # ra Number, rb VariableRef (line 571)
     map2 = Dict{VariableRef, Any}(x[1] => 2.0, x[2] => y)
-    result2 = DP._replace_variables_in_constraint(quad1, map2)
+    result2 = DP.replace_variables_in_constraint(quad1, map2)
     @test result2.aff.terms[y] ≈ 2.0
 
     # rb Number, ra VariableRef (line 574)
     map3 = Dict{VariableRef, Any}(x[1] => y, x[2] => 3.0)
-    result3 = DP._replace_variables_in_constraint(quad1, map3)
+    result3 = DP.replace_variables_in_constraint(quad1, map3)
     @test result3.aff.terms[y] ≈ 3.0
 end
 
-function test_replace_variables_in_constraint()
+function testreplace_variables_in_constraint()
     model = Model()
     sub_model = Model()
     @variable(model, x[1:3])
@@ -64,14 +64,14 @@ function test_replace_variables_in_constraint()
     #Test GenericVariableRef
     new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:3]
-    varref = DP._replace_variables_in_constraint(x[1], new_vars)
-    expr1 = DP._replace_variables_in_constraint(
+    varref = DP.replace_variables_in_constraint(x[1], new_vars)
+    expr1 = DP.replace_variables_in_constraint(
         constraint_object(con1).func, new_vars)
-    expr2 = DP._replace_variables_in_constraint(
+    expr2 = DP.replace_variables_in_constraint(
         constraint_object(con2).func, new_vars)
-    expr3 = DP._replace_variables_in_constraint(
+    expr3 = DP.replace_variables_in_constraint(
         constraint_object(con3).func, new_vars)
-    expr4 = DP._replace_variables_in_constraint(
+    expr4 = DP.replace_variables_in_constraint(
         constraint_object(con4).func, new_vars)
     @test expr1 == JuMP.@expression(sub_model, new_vars[x[1]] + 1 - 1)
     @test expr2 == JuMP.@expression(sub_model, new_vars[x[2]]*new_vars[x[1]])
@@ -80,7 +80,7 @@ function test_replace_variables_in_constraint()
     expected = JuMP.@expression(sub_model, sin(new_vars[x[3]]) - 0.0)
     @test JuMP.isequal_canonical(expr3, expected)
     @test expr4 == [new_vars[x[i]] for i in 1:3]
-    @test_throws MethodError DP._replace_variables_in_constraint(
+    @test_throws MethodError DP.replace_variables_in_constraint(
         "String", new_vars)
 end
 
@@ -794,7 +794,7 @@ end
     test_mbm()
     test__var_ref_type_numeric_map()
     test__replace_variables_quad_numeric_map()
-    test_replace_variables_in_constraint()
+    testreplace_variables_in_constraint()
     test_prepare_max_M_objective()
     test_raw_M()
     test_maximize_M()
