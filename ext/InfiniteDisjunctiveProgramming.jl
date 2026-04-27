@@ -196,7 +196,6 @@ function DP.copy_model_with_constraints(
 
     # 2. Copy decision variables with bounds
     for v in JuMP.all_variables(model)
-        _is_parameter(v) && continue
         prefs = InfiniteOpt.parameter_refs(v)
         var_type = isempty(prefs) ? nothing :
             InfiniteOpt.Infinite(Tuple(ref_map[p] for p in prefs)...)
