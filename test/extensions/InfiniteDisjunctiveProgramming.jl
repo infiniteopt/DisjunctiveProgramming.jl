@@ -381,7 +381,7 @@ function test_raw_M_infinite_scalar()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    @test length(obj) == 5  # K support points
+    @test length(InfiniteOpt.parameter_refs(obj)) == 1
     @test DP.raw_M(sub, obj, mbm) == 5.0
 end
 

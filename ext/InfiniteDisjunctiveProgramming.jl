@@ -237,17 +237,20 @@ function DP.copy_model_with_constraints(
         JuMP.@constraint(mini, new_func * T in con.set)
     end
 
-    # 6. Transcribe mini InfiniteModel
+    # 6. Build the transformation backend so transcribed exists and
+    # configure its solver. We hold mini in sub.model and recover
+    # transcribed lazily via transformation_model(mini).
     InfiniteOpt.build_transformation_backend!(mini)
     transcribed = InfiniteOpt.transformation_model(mini)
     JuMP.set_optimizer(transcribed, method.optimizer)
     JuMP.set_silent(transcribed)
-    # Stash for prepare_max_M_objective / raw_M.
-    transcribed.ext[:inf_mbm_main] = model
-    transcribed.ext[:inf_mbm_ref_map] = ref_map
-    # GDPSubmodel's fwd_map / decision_vars are CP-only; unused here.
-    return DP.GDPSubmodel(transcribed, InfiniteOpt.GeneralVariableRef[],
-        Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}())
+    # 7. Wrap ref_map as fwd_map (singleton vectors) so
+    # prepare_max_M_objective can use the standard flat_map idiom.
+    fwd_map = Dict{InfiniteOpt.GeneralVariableRef,
+        Vector{InfiniteOpt.GeneralVariableRef}}(
+        v => [w] for (v, w) in ref_map)
+    return DP.GDPSubmodel(
+        mini, DP.collect_all_vars(model), fwd_map)
 end
 
 function DP.prepare_max_M_objective(
@@ -255,11 +258,9 @@ function DP.prepare_max_M_objective(
     obj::JuMP.ScalarConstraint{T, S},
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
-    ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = DP.replace_variables_in_constraint(
-        obj.func, ref_map) - obj.set.upper
-    sub.model.ext[:inf_mbm_obj_expr] = obj.func
-    return InfiniteOpt.transformation_expression(mini_expr)
+    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
+    obj_func = DP.replace_variables_in_constraint(obj.func, flat_map)
+    return obj_func - obj.set.upper
 end
 
 function DP.prepare_max_M_objective(
@@ -267,31 +268,35 @@ function DP.prepare_max_M_objective(
     obj::JuMP.ScalarConstraint{T, S},
     sub::DP.GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
-    ref_map = sub.model.ext[:inf_mbm_ref_map]
-    mini_expr = obj.set.lower - DP.replace_variables_in_constraint(
-        obj.func, ref_map)
-    sub.model.ext[:inf_mbm_obj_expr] = obj.func
-    return InfiniteOpt.transformation_expression(mini_expr)
+    flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
+    obj_func = DP.replace_variables_in_constraint(obj.func, flat_map)
+    return obj.set.lower - obj_func
 end
 
-# Per-support solve, delegating to scalar base raw_M. Aggregated to a
-# scalar if uniform, else to a parameter function.
+# Transcribe mini_expr, solve per support on the transcribed JuMP
+# model, and aggregate to a scalar if uniform, else to a parameter
+# function on main.
 function DP.raw_M(
-    sub::DP.GDPSubmodel,
-    objectives::AbstractArray{<:Union{JuMP.AbstractJuMPScalar, Real}},
+    sub::DP.GDPSubmodel{<:InfiniteOpt.InfiniteModel},
+    mini_expr::JuMP.AbstractJuMPScalar,
     method::DP._MBM
     )
+    objectives = InfiniteOpt.transformation_expression(mini_expr)
+    transcribed = InfiniteOpt.transformation_model(sub.model)
+    inner_sub = DP.GDPSubmodel(transcribed,JuMP.VariableRef[],
+        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}()
+        )
     M_vals = Array{typeof(method.default_M)}(undef, size(objectives))
     for I in eachindex(objectives)
-        JuMP.set_start_value.(JuMP.all_variables(sub.model), nothing)
-        m = DP.raw_M(sub, objectives[I], method)
+        m = DP.raw_M(inner_sub, objectives[I], method)
         m === nothing && return nothing
         M_vals[I] = m
     end
     all(==(first(M_vals)), M_vals) && return first(M_vals)
-    main = sub.model.ext[:inf_mbm_main]
-    expr = sub.model.ext[:inf_mbm_obj_expr]
-    prefs = InfiniteOpt.parameter_refs(expr)
+    mini_prefs = InfiniteOpt.parameter_refs(mini_expr)
+    reverse_map = Dict(ws[1] => v for (v, ws) in sub.fwd_map)
+    prefs = Tuple(reverse_map[p] for p in mini_prefs)
+    main = JuMP.owner_model(first(prefs))
     grids = Tuple(InfiniteOpt.supports(p) for p in prefs)
     interp = Interpolations.linear_interpolation(grids, M_vals)
     param_func = InfiniteOpt.build_parameter_function(

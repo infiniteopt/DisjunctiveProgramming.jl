@@ -783,6 +783,20 @@ function test_get_variable_info()
     @test info_custom.has_ub == false
 end
 
+# A NaN-valued start is treated as no start so the NaN doesn't
+# propagate to copies or to solver inputs.
+function test_get_variable_info_nan_start()
+    model = GDPModel()
+    @variable(model, x)
+    JuMP.set_start_value(x, NaN)
+    @test JuMP.has_start_value(x) == true
+    @test isnan(JuMP.start_value(x))
+
+    info = DP.get_variable_info(x)
+    @test info.has_start == false
+    @test info.start == 0
+end
+
 @testset "MBM" begin
     test__copy_model()
     test_variable_properties()
@@ -791,6 +805,7 @@ end
     test_variable_copy()
     test__copy_model_with_constraints()
     test_get_variable_info()
+    test_get_variable_info_nan_start()
     test_mbm()
     test__var_ref_type_numeric_map()
     test__replace_variables_quad_numeric_map()

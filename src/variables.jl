@@ -547,7 +547,9 @@ function get_variable_info(vref::JuMP.AbstractVariableRef;
     has_lb::Bool = JuMP.has_lower_bound(vref), 
     has_ub::Bool = JuMP.has_upper_bound(vref), 
     has_fix::Bool = JuMP.is_fixed(vref), 
-    has_start::Bool = JuMP.has_start_value(vref), 
+    has_start::Bool = JuMP.has_start_value(vref) &&
+        !(JuMP.start_value(vref) isa Number &&
+          isnan(JuMP.start_value(vref))),
     has_binary::Bool = JuMP.is_binary(vref), 
     has_integer::Bool = JuMP.is_integer(vref), 
     lower_bound::Union{Number, Function} = has_lb ? JuMP.lower_bound(vref) : 0, 

@@ -273,7 +273,7 @@ Returns `max(obj_value, 0)` on optimal, `nothing` on infeasible
 `method.default_M` otherwise (unbounded, numerical failure, etc).
 """
 function raw_M(
-    sub::GDPSubmodel,
+    sub::GDPSubmodel{<:JuMP.AbstractModel},
     objective::JuMP.AbstractJuMPScalar,
     method::_MBM
     )
