@@ -1,7 +1,7 @@
 module InfiniteDisjunctiveProgramming
 
 import JuMP.MOI as _MOI
-import InfiniteOpt, JuMP, Interpolations
+import InfiniteOpt, JuMP
 import DisjunctiveProgramming as DP
 
 ################################################################################
@@ -273,6 +273,31 @@ function DP.prepare_max_M_objective(
     return obj.set.lower - obj_func
 end
 
+# Constant interpolation
+function _interpolate(
+    grids::NTuple{N, AbstractVector{<:Real}},
+    values::AbstractArray{<:Real, N}
+    ) where {N}
+    # mimic the call form of Interpolations.jl's interpolation
+    return (args...) -> _interpolate_at(grids, values, args)
+end
+
+function _interpolate_at(
+    grids::NTuple{N, AbstractVector{<:Real}},
+    values::AbstractArray{<:Real, N},
+    args::NTuple{N, <:Real}
+    ) where {N}
+    # lower-corner cell index per dimension
+    idx_lo = ntuple(d -> 
+        clamp(searchsortedlast(grids[d], args[d]),1, length(grids[d]) - 1), N
+    )
+    # max over the 2^N corners; bit d of k picks lower or upper
+    return maximum(
+        values[ntuple(d -> idx_lo[d] +((k >> (d - 1)) & 1), N)...]
+        for k in 0:(2^N - 1)
+        )
+end
+
 # Transcribe mini_expr, solve per support on the transcribed JuMP
 # model, and aggregate to a scalar if uniform, else to a parameter
 # function on main.
@@ -298,9 +323,8 @@ function DP.raw_M(
     prefs = Tuple(reverse_map[p] for p in mini_prefs)
     main = JuMP.owner_model(first(prefs))
     grids = Tuple(InfiniteOpt.supports(p) for p in prefs)
-    interp = Interpolations.linear_interpolation(grids, M_vals)
     param_func = InfiniteOpt.build_parameter_function(
-        error, (args...) -> interp(args...), prefs)
+        error, _interpolate(grids, M_vals), prefs)
     return InfiniteOpt.add_parameter_function(main, param_func)
 end
 

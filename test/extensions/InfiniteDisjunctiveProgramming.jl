@@ -1,4 +1,4 @@
-using InfiniteOpt, HiGHS, Ipopt, Juniper, Interpolations
+using InfiniteOpt, HiGHS, Ipopt, Juniper
 import DisjunctiveProgramming as DP
 
 # Helper to access internal function
@@ -387,8 +387,8 @@ end
 
 # raw_M with a support-varying M. Setup: x(t) ∈ [0, 10], disj1: x ≤ 2t,
 # disj2: x ≥ 0.5. Slack r(x) = x - 2t maximized over x ∈ [0.5, 10]:
-# max(x - 2t) = 10 - 2t. Varies with t ⇒ raw_M returns a pfunc; the
-# underlying function should evaluate to 10 - 2t at each support.
+# max(x - 2t) = 10 - 2t. Varies with t ⇒ raw_M returns a pfunc whose
+# raw values at supports are max-of-cell upper bounds for 10 - 2t.
 function test_raw_M_infinite_param_function()
     model = InfiniteGDPModel()
     supports = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -407,9 +407,39 @@ function test_raw_M_infinite_param_function()
     M = DP.raw_M(sub, obj, mbm)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
+    # max-of-corners is conservative: raw_fn(t) ≥ 10 - 2t at supports.
     for t_val in supports
-        @test raw_fn(t_val) ≈ 10.0 - 2*t_val atol=1e-6
+        @test raw_fn(t_val) >= 10.0 - 2*t_val - 1e-6
     end
+end
+
+# Piecewise-constant max-of-corners: returns the maximum value over
+# the 2^n corners of the cell containing the query.
+function test_interpolate()
+    grid1 = [0.0, 1.0, 2.0, 3.0]
+    vals1 = [10.0, 20.0, 40.0, 50.0]
+    f = IDP._interpolate((grid1,), vals1)
+    # At grid points: max over the cell to the right (or last cell).
+    @test f(0.0) == 20.0   # max(vals[1], vals[2])
+    @test f(1.0) == 40.0   # max(vals[2], vals[3])
+    @test f(3.0) == 50.0   # last cell: max(vals[3], vals[4])
+    # Between grid points: max of the surrounding two values.
+    @test f(0.5) == 20.0
+    @test f(1.5) == 40.0
+    @test f(2.25) == 50.0
+    # Out-of-range clamps to the boundary cell.
+    @test f(-1.0) == 20.0
+    @test f(4.0) == 50.0
+
+    # 2D: max over the 4 surrounding corners.
+    gx = [0.0, 1.0, 2.0]
+    gy = [0.0, 10.0]
+    vals2 = [x * y for x in gx, y in gy]   # 3x2 matrix
+    g = IDP._interpolate((gx, gy), vals2)
+    @test g(0.0, 0.0) == 10.0   # corners (0,0)=0, (1,0)=0, (0,10)=0, (1,10)=10
+    @test g(2.0, 10.0) == 20.0  # last cell, max corner is (2,10)=20
+    @test g(0.5, 5.0) == 10.0   # corners 0,0,0,10 -> 10
+    @test g(1.5, 5.0) == 20.0   # corners 0,0,10,20 -> 20
 end
 
 # extract_solution returns per-support values from the transformation
@@ -801,6 +831,7 @@ end
     end
 
     @testset "MBM" begin
+        test_interpolate()
         test_raw_M_infinite_scalar()
         test_raw_M_infinite_param_function()
         test_mbm_finite_and_integer_var()
