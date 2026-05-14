@@ -174,83 +174,49 @@ end
 #                          MBM FOR INFINITEMODEL
 ################################################################################
 
-# Build a mini InfiniteModel holding only the given disjunct constraints,
-# transcribe it, and return as a GDPSubmodel.
+# Copy the InfiniteModel, strip everything but VariableInfo bounds,
+# add back the selected disjunct constraints, transcribe, and return
+# only the other disjunct's constraints plus variable bounds.
 function DP.copy_model_with_constraints(
     model::InfiniteOpt.InfiniteModel,
     constraints::Vector{<:DP.DisjunctConstraintRef},
     method::DP._MBM
     )
-    mini = InfiniteOpt.InfiniteModel()
-    ref_map = Dict{InfiniteOpt.GeneralVariableRef,
-        InfiniteOpt.GeneralVariableRef}()
+    mini, ref_map = JuMP.copy_model(model)
 
-    # 1. Copy infinite parameters with their supports
-    for p in InfiniteOpt.all_parameters(model)
-        domain = InfiniteOpt.infinite_domain(p)
-        supports = Float64.(InfiniteOpt.supports(p))
-        param = InfiniteOpt.build_parameter(error, domain; supports = supports)
-        new_param = InfiniteOpt.add_parameter(mini, param, JuMP.name(p))
-        ref_map[p] = new_param
+    # Drop global constraints.
+    for cref in JuMP.all_constraints(mini)
+        JuMP.delete(mini, cref)
     end
 
-    # 2. Copy decision variables with bounds
-    for v in JuMP.all_variables(model)
-        prefs = InfiniteOpt.parameter_refs(v)
-        var_type = isempty(prefs) ? nothing :
-            InfiniteOpt.Infinite(Tuple(ref_map[p] for p in prefs)...)
-        props = DP.VariableProperties(
-            DP.get_variable_info(v), "", nothing, var_type)
-        ref_map[v] = DP.create_variable(mini, props)
-    end
-
-    # 3. Copy derivatives with their bounds
-    for d in InfiniteOpt.all_derivatives(model)
-        vref = InfiniteOpt.derivative_argument(d)
-        pref = InfiniteOpt.operator_parameter(d)
-        new_d = InfiniteOpt.deriv(ref_map[vref], ref_map[pref])
-        info = DP.get_variable_info(d)
-        info.has_lb && JuMP.set_lower_bound(new_d, info.lower_bound)
-        info.has_ub && JuMP.set_upper_bound(new_d, info.upper_bound)
-        ref_map[d] = new_d
-    end
-
-    # 4. Copy parameter functions (needed by ref_map substitution)
-    for pfunc in InfiniteOpt.all_parameter_functions(model)
-        func = InfiniteOpt.raw_function(pfunc)
-        prefs = InfiniteOpt.parameter_refs(pfunc)
-        mapped_prefs = Tuple(ref_map[p] for p in prefs)
-        pref_arg = length(mapped_prefs) == 1 ?
-            only(mapped_prefs) : mapped_prefs
-        param_func = InfiniteOpt.build_parameter_function(
-            error, func, pref_arg)
-        ref_map[pfunc] = InfiniteOpt.add_parameter_function(
-            mini, param_func)
-    end
-
-    # 5. Add disjunct constraints using existing ref_map
     for cref in constraints
-        cref isa DP.DisjunctConstraintRef || continue
         con = JuMP.constraint_object(cref)
-        new_func = DP.replace_variables_in_constraint(con.func, ref_map)
         T = one(JuMP.value_type(typeof(mini)))
-        JuMP.@constraint(mini, new_func * T in con.set)
+        JuMP.@constraint(mini, ref_map[con.func] * T in con.set)
     end
 
-    # 6. Build the transformation backend so transcribed exists and
-    # configure its solver. We hold mini in sub.model and recover
-    # transcribed lazily via transformation_model(mini).
     InfiniteOpt.build_transformation_backend!(mini)
     transcribed = InfiniteOpt.transformation_model(mini)
     JuMP.set_optimizer(transcribed, method.optimizer)
     JuMP.set_silent(transcribed)
-    # 7. Wrap ref_map as fwd_map (singleton vectors) so
-    # prepare_max_M_objective can use the standard flat_map idiom.
+
+    # fwd_map needs every ref reachable from disjunct constraints —
+    # decision vars + parameters + parameter functions so the
+    # objective substitution in `prepare_max_M_objective` can look up
+    # any term it sees.
+    decision_vars = DP.collect_all_vars(model)
     fwd_map = Dict{InfiniteOpt.GeneralVariableRef,
-        Vector{InfiniteOpt.GeneralVariableRef}}(
-        v => [w] for (v, w) in ref_map)
-    return DP.GDPSubmodel(
-        mini, DP.collect_all_vars(model), fwd_map)
+        Vector{InfiniteOpt.GeneralVariableRef}}()
+    for v in decision_vars
+        fwd_map[v] = [ref_map[v]]
+    end
+    for p in InfiniteOpt.all_parameters(model)
+        fwd_map[p] = [ref_map[p]]
+    end
+    for pf in InfiniteOpt.all_parameter_functions(model)
+        fwd_map[pf] = [ref_map[pf]]
+    end
+    return DP.GDPSubmodel(mini, decision_vars, fwd_map)
 end
 
 function DP.prepare_max_M_objective(
