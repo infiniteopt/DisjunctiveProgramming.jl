@@ -30,7 +30,7 @@ function copy_and_reformulate(
     orig_to_copy = Dict{V, V}(
         v => ref_map[v] for v in decision_vars)
     JuMP.@objective(copy, sense,
-        _replace_variables_in_constraint(obj, orig_to_copy)
+        replace_variables_in_constraint(obj, orig_to_copy)
         )
     fwd_map = Dict{V, Vector{V}}(v => [ref_map[v]] for v in decision_vars)
     sub = GDPSubmodel(copy, decision_vars, fwd_map)
@@ -221,7 +221,7 @@ function copy_gdp_data(
         old_con_ref = LogicalConstraintRef(model, idx)
         new_con_ref = LogicalConstraintRef(new_model, idx)
         c = lc_data.constraint
-        expr = _replace_variables_in_constraint(c.func, lv_map)
+        expr = replace_variables_in_constraint(c.func, lv_map)
         new_con = JuMP.build_constraint(error, expr, c.set)
         JuMP.add_constraint(new_model, new_con, lc_data.name)
         lc_map[old_con_ref] = new_con_ref
@@ -233,7 +233,7 @@ function copy_gdp_data(
         old_dc_ref = DisjunctConstraintRef(model, idx)
         old_indicator = old_gdp.constraint_to_indicator[old_dc_ref]
         new_indicator = lv_map[old_indicator]
-        new_expr = _replace_variables_in_constraint(old_constraint.func, 
+        new_expr = replace_variables_in_constraint(old_constraint.func, 
         var_map
         )
         # Update to new_gdp.disjunct_constraints
@@ -247,7 +247,7 @@ function copy_gdp_data(
     # Copying disjunctions
     for (idx, disj_data) in old_gdp.disjunctions
         old_disj = disj_data.constraint
-        new_indicators = [_replace_variables_in_constraint(indicator, lv_map) 
+        new_indicators = [replace_variables_in_constraint(indicator, lv_map) 
         for indicator in old_disj.indicators
             ]
         new_disj = Disjunction(new_indicators, old_disj.nested)
@@ -383,7 +383,7 @@ function _remap_indicator_to_binary(
     bref::JuMP.GenericAffExpr,
     var_map::Dict{V, V}
 ) where {V <: JuMP.AbstractVariableRef}
-    return _replace_variables_in_constraint(bref, var_map)
+    return replace_variables_in_constraint(bref, var_map)
 end
 
 function _remap_constraint_to_indicator(

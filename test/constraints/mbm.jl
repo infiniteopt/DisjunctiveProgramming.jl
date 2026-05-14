@@ -27,7 +27,7 @@ function test__var_ref_type_numeric_map()
     @test DP._var_ref_type(typeof(aff), var_map) == VariableRef
 end
 
-# _replace_variables_in_constraint with QuadExpr where var_map
+# replace_variables_in_constraint with QuadExpr where var_map
 # maps some vars to Numbers. Covers lines 569, 571, 574.
 function test__replace_variables_quad_numeric_map()
     model = Model()
@@ -38,17 +38,17 @@ function test__replace_variables_quad_numeric_map()
 
     # both Number (line 569)
     map1 = Dict{VariableRef, Any}(x[1] => 2.0, x[2] => 3.0)
-    result1 = DP._replace_variables_in_constraint(quad1, map1)
+    result1 = DP.replace_variables_in_constraint(quad1, map1)
     @test result1.aff.constant ≈ 6.0
 
     # ra Number, rb VariableRef (line 571)
     map2 = Dict{VariableRef, Any}(x[1] => 2.0, x[2] => y)
-    result2 = DP._replace_variables_in_constraint(quad1, map2)
+    result2 = DP.replace_variables_in_constraint(quad1, map2)
     @test result2.aff.terms[y] ≈ 2.0
 
     # rb Number, ra VariableRef (line 574)
     map3 = Dict{VariableRef, Any}(x[1] => y, x[2] => 3.0)
-    result3 = DP._replace_variables_in_constraint(quad1, map3)
+    result3 = DP.replace_variables_in_constraint(quad1, map3)
     @test result3.aff.terms[y] ≈ 3.0
 end
 
@@ -64,14 +64,14 @@ function test_replace_variables_in_constraint()
     #Test GenericVariableRef
     new_vars = Dict{AbstractVariableRef, AbstractVariableRef}()
     [new_vars[x[i]] = @variable(sub_model) for i in 1:3]
-    varref = DP._replace_variables_in_constraint(x[1], new_vars)
-    expr1 = DP._replace_variables_in_constraint(
+    varref = DP.replace_variables_in_constraint(x[1], new_vars)
+    expr1 = DP.replace_variables_in_constraint(
         constraint_object(con1).func, new_vars)
-    expr2 = DP._replace_variables_in_constraint(
+    expr2 = DP.replace_variables_in_constraint(
         constraint_object(con2).func, new_vars)
-    expr3 = DP._replace_variables_in_constraint(
+    expr3 = DP.replace_variables_in_constraint(
         constraint_object(con3).func, new_vars)
-    expr4 = DP._replace_variables_in_constraint(
+    expr4 = DP.replace_variables_in_constraint(
         constraint_object(con4).func, new_vars)
     @test expr1 == JuMP.@expression(sub_model, new_vars[x[1]] + 1 - 1)
     @test expr2 == JuMP.@expression(sub_model, new_vars[x[2]]*new_vars[x[1]])
@@ -80,7 +80,7 @@ function test_replace_variables_in_constraint()
     expected = JuMP.@expression(sub_model, sin(new_vars[x[3]]) - 0.0)
     @test JuMP.isequal_canonical(expr3, expected)
     @test expr4 == [new_vars[x[i]] for i in 1:3]
-    @test_throws MethodError DP._replace_variables_in_constraint(
+    @test_throws MethodError DP.replace_variables_in_constraint(
         "String", new_vars)
 end
 
@@ -134,19 +134,19 @@ function test_raw_M()
         DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(model,
         constraint_object(con), sub)
-    @test DP._raw_M(sub, obj, mbm) == 0.0
+    @test DP.raw_M(sub, obj, mbm) == 0.0
     set_upper_bound(x, 1)
     sub2 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm)
     obj2 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    @test DP._raw_M(sub2, obj2, mbm) == 15
+    @test DP.raw_M(sub2, obj2, mbm) == 15
     set_integer(y)
     @constraint(model, con3, y*x == 15,
         Disjunct(Y[1]))
     obj3 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    @test DP._raw_M(sub2, obj3, mbm) == 15
+    @test DP.raw_M(sub2, obj3, mbm) == 15
     # Fresh _MBM after changing bounds
     JuMP.fix(y, 5; force=true)
     mbm2 = DP._MBM(
@@ -155,7 +155,7 @@ function test_raw_M()
         DisjunctConstraintRef[con], mbm2)
     obj4 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub3)
-    @test DP._raw_M(sub3, obj4, mbm2) == 10
+    @test DP.raw_M(sub3, obj4, mbm2) == 10
     # Infeasible region → nothing
     delete_lower_bound(x)
     mbm3 = DP._MBM(
@@ -164,7 +164,7 @@ function test_raw_M()
         DisjunctConstraintRef[con2], mbm3)
     obj5 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub4)
-    @test DP._raw_M(sub4, obj5, mbm3) == nothing
+    @test DP.raw_M(sub4, obj5, mbm3) == nothing
 
     # infeasible (x >= 100 but x <= 1)
     set_upper_bound(x, 1)
@@ -175,7 +175,7 @@ function test_raw_M()
         mbm4)
     obj6 = DP.prepare_max_M_objective(model,
         constraint_object(con), sub5)
-    @test DP._raw_M(sub5, obj6, mbm4) == nothing
+    @test DP.raw_M(sub5, obj6, mbm4) == nothing
 
     # Unbounded subproblem → default_M fallback.
     # No lower bound on x means max(5 - x) s.t. x <= 3
@@ -191,7 +191,7 @@ function test_raw_M()
         DisjunctConstraintRef[ub_con1], mbm_ub)
     obj_ub = DP.prepare_max_M_objective(model_ub,
         constraint_object(ub_con2), sub_ub)
-    @test DP._raw_M(sub_ub, obj_ub, mbm_ub) == mbm_ub.default_M
+    @test DP.raw_M(sub_ub, obj_ub, mbm_ub) == mbm_ub.default_M
 end
 
 function test_maximize_M()
@@ -783,6 +783,20 @@ function test_get_variable_info()
     @test info_custom.has_ub == false
 end
 
+# A NaN-valued start is treated as no start so the NaN doesn't
+# propagate to copies or to solver inputs.
+function test_get_variable_info_nan_start()
+    model = GDPModel()
+    @variable(model, x)
+    JuMP.set_start_value(x, NaN)
+    @test JuMP.has_start_value(x) == true
+    @test isnan(JuMP.start_value(x))
+
+    info = DP.get_variable_info(x)
+    @test info.has_start == false
+    @test info.start == 0
+end
+
 @testset "MBM" begin
     test__copy_model()
     test_variable_properties()
@@ -791,6 +805,7 @@ end
     test_variable_copy()
     test__copy_model_with_constraints()
     test_get_variable_info()
+    test_get_variable_info_nan_start()
     test_mbm()
     test__var_ref_type_numeric_map()
     test__replace_variables_quad_numeric_map()

@@ -242,7 +242,7 @@ end
     prepare_max_M_objective(model, obj::ScalarConstraint, sub::GDPSubmodel)
 
 Convert a constraint into an objective expression for M-value
-maximization. Returns a single JuMP expression to pass to `_raw_M`.
+maximization. Returns a single JuMP expression to pass to `raw_M`.
 """
 function prepare_max_M_objective(
     ::JuMP.AbstractModel,
@@ -250,7 +250,7 @@ function prepare_max_M_objective(
     sub::GDPSubmodel
     ) where {T, S <: _MOI.LessThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = -obj.set.upper + _replace_variables_in_constraint(obj.func, flat_map)
+    expr = -obj.set.upper + replace_variables_in_constraint(obj.func, flat_map)
     return expr
 end
 
@@ -260,14 +260,20 @@ function prepare_max_M_objective(
     sub::GDPSubmodel
     ) where {T, S <: _MOI.GreaterThan}
     flat_map = Dict(v => ws[1] for (v, ws) in sub.fwd_map)
-    expr = obj.set.lower - _replace_variables_in_constraint(obj.func, flat_map)
+    expr = obj.set.lower - replace_variables_in_constraint(obj.func, flat_map)
     return expr
 end
 
-# Solve the submodel for a single objective expression.
-# Returns a scalar M value, or nothing if infeasible.
-function _raw_M(
-    sub::GDPSubmodel,
+"""
+    raw_M(sub::GDPSubmodel, objective, method::_MBM)
+
+Maximize `objective` over `sub` to obtain one raw M value for MBM.
+Returns `max(obj_value, 0)` on optimal, `nothing` on infeasible
+(signals the constraint is redundant in the combined region), or
+`method.default_M` otherwise (unbounded, numerical failure, etc).
+"""
+function raw_M(
+    sub::GDPSubmodel{<:JuMP.AbstractModel},
     objective::JuMP.AbstractJuMPScalar,
     method::_MBM
     )
@@ -291,7 +297,7 @@ function _maximize_M(
     method::_MBM
     ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub = _get_submodel(model, constraints, method)
-    return _raw_M(sub,
+    return raw_M(sub,
         prepare_max_M_objective(model, objective, sub), method)
 end
 
@@ -321,8 +327,8 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
+    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [raw_lower, raw_upper]
@@ -341,8 +347,8 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = _raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = _raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
+    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
+    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
     (raw_lower === nothing || raw_upper === nothing) &&
         return nothing
     return [raw_lower, raw_upper]
@@ -361,7 +367,7 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = _raw_M(sub,
+        raw = raw_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
         raw === nothing && return nothing
@@ -384,7 +390,7 @@ function _maximize_M(
         ge_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.GreaterThan(zero(val_type)))
-        raw = _raw_M(sub,
+        raw = raw_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
         raw === nothing && return nothing
@@ -410,10 +416,10 @@ function _maximize_M(
         le_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.LessThan(zero(val_type)))
-        raw_ge = _raw_M(sub,
+        raw_ge = raw_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
-        raw_le = _raw_M(sub,
+        raw_le = raw_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
         (raw_ge === nothing || raw_le === nothing) &&
@@ -456,7 +462,7 @@ function copy_model_with_constraints(
     for cref in constraints
         con = JuMP.constraint_object(cref)
         flat_map = Dict(v => only(ws) for (v, ws) in fwd_map)
-        expr = _replace_variables_in_constraint(con.func, flat_map)
+        expr = replace_variables_in_constraint(con.func, flat_map)
         T = one(JuMP.value_type(typeof(sub_model)))
         JuMP.@constraint(sub_model, expr * T in con.set)
     end
@@ -474,7 +480,7 @@ end
 # Replace variable refs in an expression using a map. Uses AbstractDict
 # because the InfiniteModel MBM path maps decision vars to VariableRefs
 # and parameter functions to Numbers in the same dict (via _build_flat_map).
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::JuMP.AbstractVariableRef,
     var_map::AbstractDict
     )
@@ -495,7 +501,7 @@ function _var_ref_type(
     return V
 end
 
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::T, var_map::AbstractDict
     ) where {T <: JuMP.GenericAffExpr}
     C = JuMP.value_type(T)
@@ -508,7 +514,7 @@ function _replace_variables_in_constraint(
     return new_aff
 end
 
-function _replace_variables_in_constraint(
+function replace_variables_in_constraint(
     fun::T, var_map::AbstractDict
     ) where {T <: JuMP.GenericQuadExpr}
     C = JuMP.value_type(T)
@@ -518,23 +524,23 @@ function _replace_variables_in_constraint(
         JuMP.add_to_expression!(new_quad,
             coef * var_map[vars.a] * var_map[vars.b])
     end
-    new_aff = _replace_variables_in_constraint(fun.aff, var_map)
+    new_aff = replace_variables_in_constraint(fun.aff, var_map)
     JuMP.add_to_expression!(new_quad, new_aff)
     return new_quad
 end
 
-function _replace_variables_in_constraint(fun::Number, var_map::AbstractDict)
+function replace_variables_in_constraint(fun::Number, var_map::AbstractDict)
     return fun
 end
 
-function _replace_variables_in_constraint(fun::T,
+function replace_variables_in_constraint(fun::T,
     var_map::AbstractDict) where {T <: JuMP.GenericNonlinearExpr}
-    new_args = Any[_replace_variables_in_constraint(
+    new_args = Any[replace_variables_in_constraint(
         arg, var_map) for arg in fun.args]
     return T(fun.head, new_args)
 end
 
-function _replace_variables_in_constraint(fun::Vector, var_map::AbstractDict)
-    return [_replace_variables_in_constraint(expr,
+function replace_variables_in_constraint(fun::Vector, var_map::AbstractDict)
+    return [replace_variables_in_constraint(expr,
         var_map) for expr in fun]
 end
