@@ -30,6 +30,7 @@ include("print.jl")
 include("extension_api.jl")
 include("utilities.jl")
 include("psplit.jl")
+include("basicsteps.jl")
 
 # Define additional stuff that should not be exported
 const _EXCLUDE_SYMBOLS = [Symbol(@__MODULE__), :eval, :include]

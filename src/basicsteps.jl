@@ -1,0 +1,316 @@
+################################################################################
+#                              INPUT CHECKING
+################################################################################
+# Verify a global constraint can be intersected into a disjunction
+function _check_global_constraint(model::JuMP.AbstractModel, cref)
+    if cref isa Union{DisjunctConstraintRef, DisjunctionRef,
+        LogicalConstraintRef}
+        error("Global `constraints` must be regular model constraints, " *
+              "not `$(typeof(cref))`.")
+    end
+    JuMP.is_valid(model, cref) || error(
+        "Global constraint `$cref` does not belong to the model.")
+    cref in _reformulation_constraints(model) && error(
+        "Global constraint `$cref` is a reformulation constraint and " *
+        "cannot be intersected into a disjunction.")
+    con = JuMP.constraint_object(cref)
+    if con isa JuMP.ScalarConstraint &&
+        JuMP.jump_function(con) isa JuMP.AbstractVariableRef
+        error("Global constraint `$cref` constrains a single variable " *
+              "(e.g., a variable bound or integrality constraint) and " *
+              "cannot be intersected into a disjunction.")
+    end
+    supported = con isa JuMP.ScalarConstraint ||
+        (con isa JuMP.VectorConstraint && JuMP.moi_set(con) isa
+            Union{_MOI.Nonnegatives, _MOI.Nonpositives, _MOI.Zeros})
+    supported || error("Global constraint `$cref` with set " *
+        "`$(JuMP.moi_set(con))` cannot be intersected into a disjunction.")
+    _check_expression(JuMP.jump_function(con))
+    return
+end
+
+# Verify the basic step inputs before any model mutation
+function _check_basic_step_input(
+    model::JuMP.AbstractModel,
+    disjunctions::Vector{<:DisjunctionRef},
+    constraints::Vector
+    )
+    is_gdp_model(model) || error(
+        "Basic steps can only be applied to `GDPModel`s.")
+    isempty(disjunctions) && error(
+        "Basic steps require at least one disjunction.")
+    if length(disjunctions) == 1 && isempty(constraints)
+        error("A basic step on a single disjunction requires global " *
+              "`constraints` to intersect with it (improper basic step).")
+    end
+    isequal(unique(disjunctions), disjunctions) || error(
+        "The `disjunctions` for a basic step must be unique.")
+    for dref in disjunctions
+        JuMP.is_valid(model, dref) || error(
+            "Disjunction `$dref` does not belong to the model.")
+        disj = JuMP.constraint_object(dref)
+        disj.nested && error(
+            "Basic steps do not support nested disjunction `$dref`.")
+        if !haskey(_exactly1_constraints(model), dref) &&
+            !any(has_logical_complement.(disj.indicators))
+            error("Basic steps require disjunctions where exactly one " *
+                  "disjunct is selected, but `exactly1 = false` for " *
+                  "disjunction `$dref`.")
+        end
+        for lvref in disj.indicators
+            crefs = get(_indicator_to_constraints(model), lvref, nothing)
+            isnothing(crefs) && continue
+            if any(cref -> cref isa DisjunctionRef, crefs)
+                error("Basic steps do not support disjuncts that contain " *
+                      "nested disjunctions (indicator `$lvref`).")
+            end
+        end
+    end
+    all_indicators = reduce(
+        vcat, [JuMP.constraint_object(d).indicators for d in disjunctions])
+    indicator_set = Set(all_indicators)
+    length(indicator_set) == length(all_indicators) || error(
+        "The `disjunctions` for a basic step share indicator variables.")
+    input_set = Set(disjunctions)
+    for (idx, disj) in _disjunctions(model)
+        dref = DisjunctionRef(model, idx)
+        dref in input_set && continue
+        if any(in(indicator_set), disj.constraint.indicators)
+            error("An indicator of the `disjunctions` for a basic step " *
+                  "is also used by disjunction `$dref`.")
+        end
+    end
+    isequal(unique(constraints), constraints) || error(
+        "The global `constraints` for a basic step must be unique.")
+    for cref in constraints
+        _check_global_constraint(model, cref)
+    end
+    return
+end
+
+################################################################################
+#                              PRODUCT CONSTRUCTION
+################################################################################
+# Snapshot the constraint contents of each input disjunct before mutating
+function _snapshot_disjunct_constraints(
+    model::M,
+    indicator_vectors::Vector{Vector{LogicalVariableRef{M}}}
+    ) where {M <: JuMP.AbstractModel}
+    snapshot = Dict{LogicalVariableRef{M},
+        Vector{Tuple{JuMP.AbstractConstraint, String}}}()
+    for lvref in Iterators.flatten(indicator_vectors)
+        crefs = get(_indicator_to_constraints(model), lvref, [])
+        snapshot[lvref] =
+            [(JuMP.constraint_object(c), JuMP.name(c)) for c in crefs]
+    end
+    return snapshot
+end
+
+# Create the indicator variables of the product disjuncts, one per
+# element of the cartesian product of the input disjunctions' disjuncts
+function _add_product_indicators(
+    model::M,
+    indicator_vectors::Vector{Vector{LogicalVariableRef{M}}},
+    name::String,
+    relax_products::Bool
+    ) where {M <: JuMP.AbstractModel}
+    dims = Tuple(length(inds) for inds in indicator_vectors)
+    products = Array{LogicalVariableRef{M}}(undef, dims)
+    for idx in CartesianIndices(products)
+        w_name = isempty(name) ? "" :
+            string(name, "[", join(Tuple(idx), ","), "]")
+        products[idx] = JuMP.add_variable(
+            model, LogicalVariable(nothing, nothing, nothing), w_name)
+        # Thm. 2.2 (Trespalacios & Grossmann 2016): the product
+        # indicators need not be binary given the linking constraints
+        if relax_products
+            bvref = binary_variable(products[idx])
+            JuMP.unset_binary(bvref)
+            JuMP.set_lower_bound(bvref, 0)
+            JuMP.set_upper_bound(bvref, 1)
+        end
+    end
+    return products
+end
+
+# Populate each product disjunct with the constraints of its parent
+# disjuncts and with the intersected global constraints
+function _fill_product_disjuncts(
+    model::M,
+    products::Array{LogicalVariableRef{M}},
+    indicator_vectors::Vector{Vector{LogicalVariableRef{M}}},
+    disjunct_snapshot::Dict,
+    global_snapshot::Vector
+    ) where {M <: JuMP.AbstractModel}
+    # NOTE: this is the seam where a future `prune` option would drop
+    # product disjuncts whose intersections are infeasible
+    for idx in CartesianIndices(products)
+        w = products[idx]
+        for (axis, inds) in enumerate(indicator_vectors)
+            # constraint objects are shared across product disjuncts;
+            # safe since reformulations never mutate stored functions
+            for (con, cname) in disjunct_snapshot[inds[idx[axis]]]
+                JuMP.add_constraint(model, _DisjunctConstraint(con, w), cname)
+            end
+        end
+        for (con, cname) in global_snapshot
+            new_con = JuMP.build_constraint(
+                error, JuMP.jump_function(con), JuMP.moi_set(con), Disjunct(w))
+            JuMP.add_constraint(model, new_con, cname)
+        end
+    end
+    return
+end
+
+# Add the linking constraints `Y in Exactly(w_slice)` which reformulate
+# to the marginal equalities `y = Σ w` of Thm. 2.2 (Trespalacios &
+# Grossmann 2016), eq. (2n)
+function _add_linking_constraints(
+    model::M,
+    products::Array{LogicalVariableRef{M}},
+    indicator_vectors::Vector{Vector{LogicalVariableRef{M}}},
+    name::String
+    ) where {M <: JuMP.AbstractModel}
+    for (axis, inds) in enumerate(indicator_vectors)
+        for (i, lvref) in enumerate(inds)
+            slice = vec(collect(selectdim(products, axis, i)))
+            link_name = isempty(name) ? "" :
+                string(name, "_link[", axis, ",", i, "]")
+            con = JuMP.build_constraint(error, slice, Exactly(lvref))
+            JuMP.add_constraint(model, con, link_name)
+        end
+    end
+    return
+end
+
+################################################################################
+#                              INPUT REMOVAL
+################################################################################
+# Remove the original disjunctions, their disjunct constraints, and the
+# intersected global constraints (their content now lives in the product
+# disjunction, so the original logical variables are kept)
+function _delete_basic_step_inputs(
+    model::JuMP.AbstractModel,
+    disjunctions::Vector{<:DisjunctionRef},
+    constraints::Vector
+    )
+    for dref in disjunctions
+        for lvref in JuMP.constraint_object(dref).indicators
+            crefs = get(_indicator_to_constraints(model), lvref, nothing)
+            isnothing(crefs) && continue
+            for cref in copy(crefs) # delete mutates the mapped vector
+                JuMP.delete(model, cref)
+            end
+        end
+        JuMP.delete(model, dref)
+    end
+    for cref in constraints
+        JuMP.delete(model, cref)
+    end
+    return
+end
+
+################################################################################
+#                              BASIC STEP API
+################################################################################
+# In-place improper basic step: intersect global constraints into every
+# disjunct of an existing disjunction without rebuilding it
+function _apply_improper_basic_step(
+    model::JuMP.AbstractModel,
+    dref::DisjunctionRef,
+    constraints::Vector
+    )
+    global_snapshot = [(JuMP.constraint_object(c), JuMP.name(c))
+                       for c in constraints]
+    for lvref in JuMP.constraint_object(dref).indicators
+        for (con, cname) in global_snapshot
+            new_con = JuMP.build_constraint(
+                error, JuMP.jump_function(con), JuMP.moi_set(con),
+                Disjunct(lvref))
+            JuMP.add_constraint(model, new_con, cname)
+        end
+    end
+    for cref in constraints
+        JuMP.delete(model, cref)
+    end
+    _set_ready_to_optimize(model, false)
+    return dref
+end
+
+"""
+    apply_basic_step(
+        model::JuMP.AbstractModel,
+        disjunctions::Vector{<:DisjunctionRef};
+        [constraints::Vector = JuMP.ConstraintRef[]],
+        [name::String = ""],
+        [relax_products::Bool = false]
+        )::DisjunctionRef
+
+Apply a basic step (Balas 1985; Trespalacios & Grossmann 2016, Thm. 2.1)
+to `disjunctions`, replacing them with an equivalent product disjunction
+whose disjuncts are the intersections of the original disjuncts, taken
+over the cartesian product of the input disjunctions. Any global
+`constraints` are intersected into every product disjunct (an improper
+basic step) and removed from the model. The feasible region is
+unchanged, but the hull relaxation of the resulting GDP is at least as
+tight as before.
+
+Each input disjunction must be created with `exactly1 = true` (or use a
+logical-complement pair) and must not be nested or contain nested
+disjunctions. The original disjunctions
+and their disjunct constraints are deleted; the original logical
+variables are kept and tied to the new product indicators through
+linking constraints `Y in Exactly(w_slice)`, which reformulate to the
+marginal equalities of Thm. 2.2. With a single disjunction, the global
+`constraints` are intersected into it in place and the same
+`DisjunctionRef` is returned (`name` and `relax_products` are ignored).
+
+Note the number of disjuncts of the product disjunction is the product
+of the numbers of disjuncts of the inputs, so repeated basic steps grow
+the model multiplicatively.
+
+## Keyword Arguments
+- `constraints::Vector`: Global constraints to intersect into the new
+  disjunction. They are deleted from the model afterwards (macro-bound
+  names remain registered in the model, per standard `JuMP.delete`
+  behavior).
+- `name::String`: Base name for the product disjunction, its indicator
+  variables (`name[i,j]`), and the linking constraints
+  (`name_link[k,i]`). Anonymous by default.
+- `relax_products::Bool`: If `true`, the binary variables of the product
+  indicators are relaxed to `[0, 1]`. This is valid because the binary
+  original indicators force the products integral through the linking
+  constraints (Thm. 2.2), and it avoids growing the number of binary
+  variables.
+
+## Returns
+- `DisjunctionRef`: The product disjunction (or `first(disjunctions)`
+  when a single disjunction is given).
+"""
+function apply_basic_step(
+    model::M,
+    disjunctions::Vector{DisjunctionRef{M}};
+    constraints::Vector = JuMP.ConstraintRef[],
+    name::String = "",
+    relax_products::Bool = false
+    ) where {M <: JuMP.AbstractModel}
+    _check_basic_step_input(model, disjunctions, constraints)
+    if length(disjunctions) == 1
+        return _apply_improper_basic_step(
+            model, first(disjunctions), constraints)
+    end
+    indicator_vectors = [JuMP.constraint_object(dref).indicators
+                         for dref in disjunctions]
+    disjunct_snapshot = _snapshot_disjunct_constraints(model, indicator_vectors)
+    global_snapshot = [(JuMP.constraint_object(c), JuMP.name(c))
+                       for c in constraints]
+    products = _add_product_indicators(
+        model, indicator_vectors, name, relax_products)
+    _fill_product_disjuncts(
+        model, products, indicator_vectors, disjunct_snapshot, global_snapshot)
+    new_dref = disjunction(model, vec(products), name)
+    _add_linking_constraints(model, products, indicator_vectors, name)
+    _delete_basic_step_inputs(model, disjunctions, constraints)
+    _set_ready_to_optimize(model, false)
+    return new_dref
+end
