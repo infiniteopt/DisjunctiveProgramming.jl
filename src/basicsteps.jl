@@ -106,6 +106,14 @@ function _snapshot_disjunct_constraints(
     return snapshot
 end
 
+# Build the logical variable for a product-disjunct indicator, given the
+# parent indicators it is formed from. Extensions override to carry
+# parameter dependence (e.g. an indicator that varies over the parents'
+# infinite parameters).
+function _product_indicator_variable(model, parents)
+    return LogicalVariable(nothing, nothing, nothing)
+end
+
 # Create the indicator variables of the product disjuncts, one per
 # element of the cartesian product of the input disjunctions' disjuncts
 function _add_product_indicators(
@@ -119,8 +127,10 @@ function _add_product_indicators(
     for idx in CartesianIndices(products)
         w_name = isempty(name) ? "" :
             string(name, "[", join(Tuple(idx), ","), "]")
+        parents = [inds[idx[axis]]
+                   for (axis, inds) in enumerate(indicator_vectors)]
         products[idx] = JuMP.add_variable(
-            model, LogicalVariable(nothing, nothing, nothing), w_name)
+            model, _product_indicator_variable(model, parents), w_name)
         # Thm. 2.2 (Trespalacios & Grossmann 2016): the product
         # indicators need not be binary given the linking constraints
         if relax_products

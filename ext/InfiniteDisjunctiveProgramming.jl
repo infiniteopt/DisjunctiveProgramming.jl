@@ -26,6 +26,24 @@ end
 ################################################################################
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
+# A basic-step product indicator must vary over the union of the infinite
+# parameters of the parents it is formed from, so the linking cardinality
+# constraints stay pointwise-consistent with the original indicators.
+function DP._product_indicator_variable(
+    model::InfiniteOpt.InfiniteModel,
+    parents
+    )
+    prefs = InfiniteOpt.GeneralVariableRef[]
+    for p in parents
+        for pref in InfiniteOpt.parameter_refs(DP.binary_variable(p))
+            pref in prefs || push!(prefs, pref)
+        end
+    end
+    lvar = DP.LogicalVariable(nothing, nothing, nothing)
+    isempty(prefs) && return lvar
+    return DP._TaggedLogicalVariable(lvar, InfiniteOpt.Infinite(prefs...))
+end
+
 _is_parameter(vref::InfiniteOpt.GeneralVariableRef) =
     _is_parameter(InfiniteOpt.dispatch_variable_ref(vref))
 _is_parameter(::InfiniteOpt.DependentParameterRef) = true
@@ -157,6 +175,27 @@ function JuMP.add_constraint(
     name::String = ""
 ) where {M <: InfiniteOpt.InfiniteModel, S, C}
     error("Cannot add, subtract, or multiply with logical variables.")
+end
+
+# Resolve the ambiguity between InfiniteOpt's generic
+# `delete(::InfiniteModel, vref)` and DP's typed constraint deletes by
+# forwarding to the DP implementation (needed when a basic step deletes
+# its input disjunctions and disjunct constraints).
+function JuMP.delete(m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctionRef)
+    return invoke(JuMP.delete,
+        Tuple{JuMP.AbstractModel, DP.DisjunctionRef}, m, cref)
+end
+function JuMP.delete(
+    m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctConstraintRef
+    )
+    return invoke(JuMP.delete,
+        Tuple{JuMP.AbstractModel, DP.DisjunctConstraintRef}, m, cref)
+end
+function JuMP.delete(
+    m::InfiniteOpt.InfiniteModel, cref::DP.LogicalConstraintRef
+    )
+    return invoke(JuMP.delete,
+        Tuple{JuMP.AbstractModel, DP.LogicalConstraintRef}, m, cref)
 end
 
 ################################################################################
