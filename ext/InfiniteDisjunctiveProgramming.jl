@@ -29,16 +29,12 @@ DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 # A basic-step product indicator must vary over the union of the infinite
 # parameters of the parents it is formed from, so the linking cardinality
 # constraints stay pointwise-consistent with the original indicators.
-function DP._product_indicator_variable(
+function DP.product_indicator_variable(
     model::InfiniteOpt.InfiniteModel,
     parents
     )
-    prefs = InfiniteOpt.GeneralVariableRef[]
-    for p in parents
-        for pref in InfiniteOpt.parameter_refs(DP.binary_variable(p))
-            pref in prefs || push!(prefs, pref)
-        end
-    end
+    prefs = unique!([pref for p in parents
+        for pref in InfiniteOpt.parameter_refs(DP.binary_variable(p))])
     lvar = DP.LogicalVariable(nothing, nothing, nothing)
     isempty(prefs) && return lvar
     return DP._TaggedLogicalVariable(lvar, InfiniteOpt.Infinite(prefs...))
@@ -178,24 +174,16 @@ function JuMP.add_constraint(
 end
 
 # Resolve the ambiguity between InfiniteOpt's generic
-# `delete(::InfiniteModel, vref)` and DP's typed constraint deletes by
-# forwarding to the DP implementation (needed when a basic step deletes
-# its input disjunctions and disjunct constraints).
-function JuMP.delete(m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctionRef)
-    return invoke(JuMP.delete,
-        Tuple{JuMP.AbstractModel, DP.DisjunctionRef}, m, cref)
-end
+# `delete(::InfiniteModel, vref)` and DP's typed deletes by forwarding
+# to the DP implementation (needed when a basic step deletes its input
+# disjunctions and disjunct constraints).
 function JuMP.delete(
-    m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctConstraintRef
+    m::InfiniteOpt.InfiniteModel,
+    ref::Union{DP.DisjunctionRef, DP.DisjunctConstraintRef,
+        DP.LogicalConstraintRef, DP.LogicalVariableRef}
     )
     return invoke(JuMP.delete,
-        Tuple{JuMP.AbstractModel, DP.DisjunctConstraintRef}, m, cref)
-end
-function JuMP.delete(
-    m::InfiniteOpt.InfiniteModel, cref::DP.LogicalConstraintRef
-    )
-    return invoke(JuMP.delete,
-        Tuple{JuMP.AbstractModel, DP.LogicalConstraintRef}, m, cref)
+        Tuple{JuMP.AbstractModel, typeof(ref)}, m, ref)
 end
 
 ################################################################################
