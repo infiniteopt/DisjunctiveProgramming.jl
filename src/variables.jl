@@ -333,6 +333,10 @@ end
 Delete the logical variable associated with `vref` from the `GDP model`.
 """
 function JuMP.delete(model::JuMP.AbstractModel, vref::LogicalVariableRef)
+    return _delete(model, vref)
+end
+
+function _delete(model::JuMP.AbstractModel, vref::LogicalVariableRef)
     @assert JuMP.is_valid(model, vref) "Variable does not belong to model."
     vidx = JuMP.index(vref)
     dict = _logical_variables(model)

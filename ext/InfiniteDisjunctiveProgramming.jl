@@ -26,15 +26,26 @@ end
 ################################################################################
 DP.InfiniteLogical(prefs...) = DP.Logical(InfiniteOpt.Infinite(prefs...))
 
-# A basic-step product indicator must vary over the union of the infinite
-# parameters of the parents it is formed from, so the linking cardinality
-# constraints stay pointwise-consistent with the original indicators.
+const _InfExpr = Union{
+    InfiniteOpt.GeneralVariableRef,
+    JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef},
+    JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef},
+    JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
+}
+
+# The parameters of every expression, in the order encountered
+function _union_parameter_refs(exprs)
+    return unique!([pref for expr in exprs
+                    for pref in InfiniteOpt.parameter_refs(expr)])
+end
+
+# A product indicator varies over the parameters of its parents, so the
+# linking constraints stay pointwise-consistent with the originals
 function DP.product_indicator_variable(
     model::InfiniteOpt.InfiniteModel,
     parents
     )
-    prefs = unique!([pref for p in parents
-        for pref in InfiniteOpt.parameter_refs(DP.binary_variable(p))])
+    prefs = _union_parameter_refs(DP.binary_variable(p) for p in parents)
     lvar = DP.LogicalVariable(nothing, nothing, nothing)
     isempty(prefs) && return lvar
     return DP._TaggedLogicalVariable(lvar, InfiniteOpt.Infinite(prefs...))
@@ -102,21 +113,8 @@ function DP.VariableProperties(
     return DP.VariableProperties(info, "", nothing, var_type)
 end
 
-function DP.VariableProperties(
-    exprs::Vector{<:Union{
-        InfiniteOpt.GeneralVariableRef,
-        JuMP.GenericAffExpr{<:Any, InfiniteOpt.GeneralVariableRef},
-        JuMP.GenericQuadExpr{<:Any, InfiniteOpt.GeneralVariableRef},
-        JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
-    }}
-)
-    all_prefs = Set{InfiniteOpt.GeneralVariableRef}()
-    for expr in exprs
-        for pref in InfiniteOpt.parameter_refs(expr)
-            push!(all_prefs, pref)
-        end
-    end
-    prefs = Tuple(all_prefs)
+function DP.VariableProperties(exprs::AbstractVector{<:_InfExpr})
+    prefs = _union_parameter_refs(exprs)
     info = DP._free_variable_info()
     var_type = !isempty(prefs) ? InfiniteOpt.Infinite(prefs...) : nothing
     return DP.VariableProperties(info, "", nothing, var_type)
@@ -177,13 +175,31 @@ end
 # `delete(::InfiniteModel, vref)` and DP's typed deletes by forwarding
 # to the DP implementation (needed when a basic step deletes its input
 # disjunctions and disjunct constraints).
+# Resolve the ambiguity between InfiniteOpt's generic
+# `delete(::InfiniteModel, vref)` and DP's typed deletes. The ref types
+# must be concrete, since a `Union` of them is not specific enough.
 function JuMP.delete(
-    m::InfiniteOpt.InfiniteModel,
-    ref::Union{DP.DisjunctionRef, DP.DisjunctConstraintRef,
-        DP.LogicalConstraintRef, DP.LogicalVariableRef}
+    m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctionRef
     )
-    return invoke(JuMP.delete,
-        Tuple{JuMP.AbstractModel, typeof(ref)}, m, ref)
+    return DP._delete(m, cref)
+end
+
+function JuMP.delete(
+    m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctConstraintRef
+    )
+    return DP._delete(m, cref)
+end
+
+function JuMP.delete(
+    m::InfiniteOpt.InfiniteModel, cref::DP.LogicalConstraintRef
+    )
+    return DP._delete(m, cref)
+end
+
+function JuMP.delete(
+    m::InfiniteOpt.InfiniteModel, vref::DP.LogicalVariableRef
+    )
+    return DP._delete(m, vref)
 end
 
 ################################################################################
