@@ -110,6 +110,56 @@ function test_improper_basic_step()
     @test !is_valid(model, g)
 end
 
+# Every supported global constraint variety folds into the product
+# disjuncts: EqualTo, Interval, vector Nonnegatives, quadratic, and
+# nonlinear (all inactive at the optimum x = [3, 5])
+function test_basic_step_global_variety()
+    model, x, Y, Z, d1, d2, _ = _basic_step_gdp(optimizer = nothing)
+    g_eq = @constraint(model, x[1] + x[2] == 8)
+    g_int = @constraint(model, 2 <= x[1] + x[2] <= 8)
+    g_vec = @constraint(model, [8 - x[1] - x[2], x[2]] in
+        MOI.Nonnegatives(2))
+    g_quad = @constraint(model, x[1]^2 + x[2]^2 <= 34)
+    g_nl = @constraint(model, exp(x[1]) <= exp(3.0))
+    globals = [g_eq, g_int, g_vec, g_quad, g_nl]
+    new_dref = apply_basic_step(model, [d1, d2], constraints = globals)
+    for w in constraint_object(new_dref).indicators
+        cons = constraint_object.(DP._indicator_to_constraints(model)[w])
+        @test length(cons) == 7
+        @test any(c -> c.set == MOI.EqualTo(8.0), cons)
+        @test any(c -> c.set == MOI.Interval(2.0, 8.0), cons)
+        @test any(c -> c.set == MOI.Nonnegatives(2), cons)
+        @test any(c -> c.func isa JuMP.GenericQuadExpr, cons)
+        @test any(c -> c.func isa JuMP.GenericNonlinearExpr, cons)
+    end
+    @test all(!is_valid(model, g) for g in globals)
+    reformulate_model(model, BigM(100))
+    @test !isempty(DP._reformulation_constraints(model))
+    # solve equivalence for a vector global (linear, HiGHS-solvable)
+    model, x, _, _, d1, d2, _ = _basic_step_gdp()
+    g_vec = @constraint(model, [6 - x[1] - x[2]] in MOI.Nonnegatives(1))
+    apply_basic_step(model, [d1, d2], constraints = [g_vec])
+    optimize!(model, gdp_method = BigM())
+    @test objective_value(model) ≈ 6
+    optimize!(model, gdp_method = Hull())
+    @test objective_value(model) ≈ 6
+end
+
+function test_basic_step_large_warning()
+    model = GDPModel()
+    @variable(model, 0 <= x <= 100)
+    @variable(model, Y[1:11], Logical)
+    @variable(model, Z[1:11], Logical)
+    for i in 1:11
+        @constraint(model, x <= i, Disjunct(Y[i]))
+        @constraint(model, x >= i, Disjunct(Z[i]))
+    end
+    d1 = disjunction(model, Y)
+    d2 = disjunction(model, Z)
+    @test_logs (:warn, r"121 product disjuncts") apply_basic_step(
+        model, [d1, d2])
+end
+
 function test_basic_step_relax_products()
     model, x, Y, Z, d1, d2, _ = _basic_step_gdp()
     new_dref = apply_basic_step(model, [d1, d2], relax_products = true)
@@ -325,6 +375,8 @@ end
     test_basic_step_creation()
     test_basic_step_linking()
     test_basic_step_globals()
+    test_basic_step_global_variety()
+    test_basic_step_large_warning()
     test_improper_basic_step()
     test_basic_step_relax_products()
     test_basic_step_complement()

@@ -227,42 +227,29 @@ end
         [relax_products::Bool = false]
         )::DisjunctionRef
 
-Apply a basic step (Balas 1985; Trespalacios & Grossmann 2016, Thm. 2.1)
-to `disjunctions`, replacing them with an equivalent product disjunction
-whose disjuncts are the intersections of the original disjuncts, taken
-over the cartesian product of the input disjunctions. Any global
-`constraints` are intersected into every product disjunct (an improper
-basic step) and removed from the model. The feasible region is
-unchanged, but the hull relaxation of the resulting GDP is at least as
-tight as before.
+Apply a basic step to `disjunctions`, replacing them with the
+equivalent product disjunction whose disjuncts are the intersections
+of the original disjuncts. The feasible region is unchanged, but the
+hull relaxation is at least as tight as before. The original
+disjunctions and their disjunct constraints are deleted; the original
+logical variables are kept and linked to the product indicators.
+With a single disjunction, the `constraints` are intersected into it
+in place.
 
-Each input disjunction must be created with `exactly1 = true` (or use a
+Each input disjunction must use `exactly1 = true` (or a
 logical-complement pair) and must not be nested or contain nested
-disjunctions. The original disjunctions
-and their disjunct constraints are deleted; the original logical
-variables are kept and tied to the new product indicators through
-linking constraints `Y in Exactly(w_slice)`, which reformulate to the
-marginal equalities of Thm. 2.2. With a single disjunction, the global
-`constraints` are intersected into it in place and the same
-`DisjunctionRef` is returned (`name` and `relax_products` are ignored).
-
-Note the number of disjuncts of the product disjunction is the product
-of the numbers of disjuncts of the inputs, so repeated basic steps grow
-the model multiplicatively.
+disjunctions. The number of product disjuncts is the product of the
+input disjunction sizes, so repeated basic steps grow the model
+multiplicatively (a warning is emitted above 100).
 
 ## Keyword Arguments
-- `constraints::Vector`: Global constraints to intersect into the new
-  disjunction. They are deleted from the model afterwards (macro-bound
-  names remain registered in the model, per standard `JuMP.delete`
-  behavior).
-- `name::String`: Base name for the product disjunction, its indicator
-  variables (`name[i,j]`), and the linking constraints
+- `constraints::Vector`: Global constraints to intersect into every
+  product disjunct; deleted from the model afterwards.
+- `name::String`: Base name for the product disjunction, its
+  indicators (`name[i,j]`), and the linking constraints
   (`name_link[k,i]`). Anonymous by default.
-- `relax_products::Bool`: If `true`, the binary variables of the product
-  indicators are relaxed to `[0, 1]`. This is valid because the binary
-  original indicators force the products integral through the linking
-  constraints (Thm. 2.2), and it avoids growing the number of binary
-  variables.
+- `relax_products::Bool`: Relax the product indicator binaries to
+  `[0, 1]` (valid since the linking constraints force them integral).
 
 ## Returns
 - `DisjunctionRef`: The product disjunction (or `first(disjunctions)`
@@ -288,6 +275,10 @@ function apply_basic_step(
     end
     indicator_vectors = [JuMP.constraint_object(dref).indicators
                          for dref in disjunctions]
+    num_products = prod(length(inds) for inds in indicator_vectors)
+    num_products > 100 && @warn "This basic step creates $num_products " *
+        "product disjuncts; repeated basic steps grow the model " *
+        "multiplicatively."
     disjunct_snapshot = _snapshot_disjunct_constraints(model, indicator_vectors)
     products = _add_product_disjuncts(model, indicator_vectors,
         disjunct_snapshot, global_snapshot, name, relax_products)

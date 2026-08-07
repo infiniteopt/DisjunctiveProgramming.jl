@@ -952,6 +952,12 @@ function test_basic_step_infinite_indicators()
         @test JuMP.name(only(prefs)) == "t"
     end
     @test !is_valid(model, d1) && !is_valid(model, d2)
+    # the logical-variable delete disambiguation
+    model2 = InfiniteGDPModel()
+    @infinite_parameter(model2, t2 in [0, 1])
+    @variable(model2, U, InfiniteLogical(t2))
+    JuMP.delete(model2, U)
+    @test !is_valid(model2, U)
 end
 
 function test_basic_step_infinite_solve()
