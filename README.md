@@ -218,7 +218,7 @@ apply_basic_step(model, [d1, d2])
 optimize!(model, gdp_method = Hull())
 ```
 
-`apply_basic_step` deletes the original disjunctions and their disjunct constraints, but keeps the original logical variables and ties them to the new product indicators with `Exactly` constraints, so any reformulation method can be used afterwards. It accepts the following optional arguments:
+`apply_basic_step` deletes the original disjunctions and their disjunct constraints, but keeps the original logical variables and ties them to the new product indicators with `Exactly` constraints, so any reformulation method can be used afterwards. The indicators of the disjuncts that were intersected to form a product disjunct can be queried with `product_parents(w)`, where `w` is one of the indicators of the returned disjunction. It accepts the following optional arguments:
 
 - `constraints`: Global constraints to intersect into every disjunct of the new disjunction. They are deleted from the model afterwards.
 - `name`: Base name for the product disjunction, its indicator variables, and the linking constraints. Anonymous by default.

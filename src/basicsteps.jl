@@ -148,6 +148,7 @@ function _add_product_disjuncts(
         w = JuMP.add_variable(
             model, product_indicator_variable(model, parents), w_name)
         products[idx] = w
+        _product_to_parents(model)[w] = parents
         # constraint objects are shared across product disjuncts; safe
         # since reformulations never mutate stored functions
         for parent in parents, (con, cname) in disjunct_snapshot[parent]
@@ -232,9 +233,10 @@ equivalent product disjunction whose disjuncts are the intersections
 of the original disjuncts. The feasible region is unchanged, but the
 hull relaxation is at least as tight as before. The original
 disjunctions and their disjunct constraints are deleted; the original
-logical variables are kept and linked to the product indicators.
-With a single disjunction, the `constraints` are intersected into it
-in place.
+logical variables are kept and linked to the product indicators. The
+parents of each product indicator can be queried with
+[`product_parents`](@ref). With a single disjunction, the
+`constraints` are intersected into it in place.
 
 Each input disjunction must use `exactly1 = true` (or a
 logical-complement pair) and must not be nested or contain nested
@@ -287,4 +289,21 @@ function apply_basic_step(
     _delete_basic_step_inputs(model, disjunctions, constraints)
     _set_ready_to_optimize(model, false)
     return new_dref
+end
+
+"""
+    product_parents(
+        vref::LogicalVariableRef
+        )::Vector{LogicalVariableRef}
+
+Return the indicator variables of the disjuncts whose intersection
+formed the product disjunct indicated by `vref` during a basic step
+(see [`apply_basic_step`](@ref)), in the order the disjunctions were
+given. Errors if `vref` is not a product indicator.
+"""
+function product_parents(vref::LogicalVariableRef)
+    model = JuMP.owner_model(vref)
+    haskey(_product_to_parents(model), vref) || error(
+        "`$vref` is not a product indicator created by a basic step.")
+    return _product_to_parents(model)[vref]
 end

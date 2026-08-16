@@ -52,6 +52,31 @@ function test_basic_step_creation()
               for w in constraint_object(new_dref).indicators)
 end
 
+function test_basic_step_product_parents()
+    model, x, Y, Z, d1, d2, _ = _basic_step_gdp()
+    new_dref = apply_basic_step(model, [d1, d2])
+    W = constraint_object(new_dref).indicators
+    @test product_parents(W[1]) == [Y[1], Z[1]]
+    @test product_parents(W[2]) == [Y[2], Z[1]]
+    @test product_parents(W[3]) == [Y[1], Z[2]]
+    @test product_parents(W[4]) == [Y[2], Z[2]]
+    # original indicators are not product indicators
+    @test_throws ErrorException product_parents(Y[1])
+    # a repeated basic step chains through the previous products
+    @variable(model, U[1:2], Logical)
+    @constraint(model, x[1] >= 0, Disjunct(U[1]))
+    @constraint(model, x[1] >= 1, Disjunct(U[2]))
+    d3 = disjunction(model, U)
+    df = apply_basic_step(model, [new_dref, d3])
+    V = constraint_object(df).indicators
+    @test product_parents(V[1]) == [W[1], U[1]]
+    @test product_parents(product_parents(V[1])[1]) == [Y[1], Z[1]]
+    # deleting a product indicator removes its mapping
+    JuMP.delete(model, V[1])
+    @test !haskey(DP._product_to_parents(model), V[1])
+    @test_throws ErrorException product_parents(V[1])
+end
+
 function test_basic_step_linking()
     model, x, Y, Z, d1, d2, _ = _basic_step_gdp()
     new_dref = apply_basic_step(model, [d1, d2], name = "bs")
@@ -373,6 +398,7 @@ end
 
 @testset "Basic Steps" begin
     test_basic_step_creation()
+    test_basic_step_product_parents()
     test_basic_step_linking()
     test_basic_step_globals()
     test_basic_step_global_variety()

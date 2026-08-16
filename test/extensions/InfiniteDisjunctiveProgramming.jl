@@ -950,6 +950,7 @@ function test_basic_step_infinite_indicators()
         prefs = InfiniteOpt.parameter_refs(binary_variable(w))
         @test length(prefs) == 1
         @test JuMP.name(only(prefs)) == "t"
+        @test length(product_parents(w)) == 2
     end
     @test !is_valid(model, d1) && !is_valid(model, d2)
     # the logical-variable delete disambiguation
