@@ -286,14 +286,13 @@ function test_basic_step_errors()
     other = disjunction(m4, C)
     @test_throws ErrorException apply_basic_step(m4, [inner, other])
     @test_throws ErrorException apply_basic_step(m4, [outer, other])
-    # indicators shared between inputs or with an outside disjunction
+    # input indicators used by an outside disjunction
     m5 = GDPModel()
     @variable(m5, P[1:2], Logical)
     @variable(m5, Q[1:2], Logical)
     d5 = disjunction(m5, P)
     d6 = disjunction(m5, Q)
     d7 = disjunction(m5, [P[1], Q[2]])
-    @test_throws ErrorException apply_basic_step(m5, [d5, d7])
     @test_throws ErrorException apply_basic_step(m5, [d5, d6])
     # variable bound refs and reformulation constraints as globals
     m6, x6, _, _, d8, d9, _ = _basic_step_gdp(optimizer = nothing)
@@ -304,6 +303,59 @@ function test_basic_step_errors()
     rc = first(DP._reformulation_constraints(m6))
     @test_throws ErrorException apply_basic_step(
         m6, [d8, d9], constraints = [rc])
+    # vector global with an unsupported set
+    m7 = GDPModel()
+    @variable(m7, z[1:2])
+    @variable(m7, R[1:2], Logical)
+    @constraint(m7, z[1] <= 1, Disjunct(R[1]))
+    @constraint(m7, z[1] >= 2, Disjunct(R[2]))
+    d10 = disjunction(m7, R)
+    g_soc = @constraint(m7, [1.0 + z[1], z[2]] in SecondOrderCone())
+    @test_throws ErrorException apply_basic_step(
+        m7, [d10], constraints = [g_soc])
+end
+
+function test_basic_step_shared_indicators()
+    # d1 = [Y1, Y2] and d2 = [Y1, Y3] couple through Y1: the logic
+    # admits {Y1} (obj 11) or {Y2, Y3} (obj 12)
+    function shared_gdp()
+        model = GDPModel(HiGHS.Optimizer)
+        set_attribute(model, MOI.Silent(), true)
+        @variable(model, 0 <= x[1:2] <= 10)
+        @variable(model, Y[1:3], Logical)
+        @objective(model, Max, x[1] + x[2])
+        @constraint(model, x[1] <= 1, Disjunct(Y[1]))
+        @constraint(model, x[1] >= 3, Disjunct(Y[2]))
+        @constraint(model, x[2] <= 2, Disjunct(Y[3]))
+        d1 = disjunction(model, [Y[1], Y[2]])
+        d2 = disjunction(model, [Y[1], Y[3]])
+        return model, d1, d2
+    end
+    # the unpruned product is built with a warning
+    model, d1, d2 = shared_gdp()
+    new_dref = @test_logs (:warn, r"share indicator") apply_basic_step(
+        model, [d1, d2], name = "bs")
+    @test is_valid(model, new_dref)
+    W = constraint_object(new_dref).indicators
+    @test length(W) == 4
+    # the diagonal cell gets the shared parent's constraints only once
+    @test length(DP._indicator_to_constraints(model)[W[1]]) == 1
+    @test length(DP._indicator_to_constraints(model)[W[2]]) == 2
+    # product exactly1 + both marginal links for Y1 + one each for
+    # Y2, Y3 (the double marginal is what forces dead cells off)
+    @test length(DP._logical_constraints(model)) == 5
+    # solve equivalence before and after the basic step
+    for method in (BigM(), Hull())
+        m, e1, e2 = shared_gdp()
+        optimize!(m, gdp_method = method)
+        @test objective_value(m) ≈ 12
+        m, e1, e2 = shared_gdp()
+        @test_logs (:warn, r"share indicator") apply_basic_step(
+            m, [e1, e2])
+        optimize!(m, gdp_method = method)
+        @test termination_status(m) == MOI.OPTIMAL
+        @test objective_value(m) ≈ 12
+    end
 end
 
 function test_basic_step_solve_equivalence()
@@ -407,6 +459,7 @@ end
     test_basic_step_relax_products()
     test_basic_step_complement()
     test_basic_step_errors()
+    test_basic_step_shared_indicators()
     test_basic_step_solve_equivalence()
     test_basic_step_hull_tightness()
     test_basic_step_repeated()

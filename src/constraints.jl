@@ -221,6 +221,11 @@ function JuMP.build_constraint(
     return _DisjunctConstraint(constr, tag.indicator)
 end
 
+_set_support(::_MOI.AbstractSet) = false
+_set_support(
+    ::Union{_MOI.Nonnegatives, _MOI.Nonpositives, _MOI.Zeros}
+) = true
+
 # Allows for building DisjunctConstraints for VectorConstraints since these get parsed differently by JuMP (JuMP changes the set to a MOI.AbstractScalarSet)
 for SetType in (
     JuMP.Nonnegatives, JuMP.Nonpositives, JuMP.Zeros,

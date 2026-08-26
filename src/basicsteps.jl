@@ -21,8 +21,8 @@ function _check_global_constraint(model::JuMP.AbstractModel, cref)
               "cannot be intersected into a disjunction.")
     end
     supported = con isa JuMP.ScalarConstraint ||
-        (con isa JuMP.VectorConstraint && JuMP.moi_set(con) isa
-            Union{_MOI.Nonnegatives, _MOI.Nonpositives, _MOI.Zeros})
+        (con isa JuMP.VectorConstraint &&
+            _set_support(JuMP.moi_set(con)))
     supported || error("Global constraint `$cref` with set " *
         "`$(JuMP.moi_set(con))` cannot be intersected into a disjunction.")
     _check_expression(JuMP.jump_function(con))
@@ -67,8 +67,11 @@ function _check_basic_step_input(
     end
     all_indicators = [lv for d in disjunctions
                       for lv in JuMP.constraint_object(d).indicators]
-    allunique(all_indicators) || error(
-        "The `disjunctions` for a basic step share indicator variables.")
+    allunique(all_indicators) || @warn "The `disjunctions` for a basic " *
+        "step share indicator variables, so some product disjuncts are " *
+        "logically infeasible. Their indicators are forced off by the " *
+        "linking constraints, so results remain correct, but the " *
+        "product disjunction is larger than its pruned equivalent."
     indicator_set = Set(all_indicators)
     input_set = Set(disjunctions)
     for (idx, disj) in _disjunctions(model)
@@ -150,8 +153,10 @@ function _add_product_disjuncts(
         products[idx] = w
         _product_to_parents(model)[w] = parents
         # constraint objects are shared across product disjuncts; safe
-        # since reformulations never mutate stored functions
-        for parent in parents, (con, cname) in disjunct_snapshot[parent]
+        # since reformulations never mutate stored functions. unique:
+        # a shared parent indicator appears on multiple axes
+        for parent in unique(parents),
+            (con, cname) in disjunct_snapshot[parent]
             JuMP.add_constraint(model, _DisjunctConstraint(con, w), cname)
         end
         _intersect_globals(model, w, global_snapshot)
@@ -240,7 +245,11 @@ parents of each product indicator can be queried with
 
 Each input disjunction must use `exactly1 = true` (or a
 logical-complement pair) and must not be nested or contain nested
-disjunctions. The number of product disjuncts is the product of the
+disjunctions. Input disjunctions may share indicator variables (a
+warning is emitted): the product then contains logically infeasible
+disjuncts whose indicators the linking constraints force off, so
+results are correct but the model is larger than its pruned
+equivalent. The number of product disjuncts is the product of the
 input disjunction sizes, so repeated basic steps grow the model
 multiplicatively (a warning is emitted above 100).
 
