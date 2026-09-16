@@ -25,4 +25,5 @@ include("constraints/disjunction.jl")
 include("print.jl")
 include("solve.jl")
 include("extensions/InfiniteDisjunctiveProgramming.jl")
+include("extensions/AbstractGPsDisjunctiveProgramming.jl")
 
