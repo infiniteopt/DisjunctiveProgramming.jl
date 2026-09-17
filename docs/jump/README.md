@@ -10,7 +10,7 @@ into a variety of mixed-integer programs.
 
 | **Current Version**                     | **Documentation**                                                               | **Build Status**                                                                                | **Citation** |
 |:---------------------------------------:|:-------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------------------:|:--------------------------------------:|
-| [![Version](https://docs.juliahub.com/DisjunctiveProgramming/version.svg)](https://juliahub.com/ui/Packages/General/DisjunctiveProgramming) | [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/) | [![Build Status](https://github.com/infiniteopt/InfiniteOpt.jl/workflows/CI/badge.svg?branch=master)](https://github.com/hdavid16/DisjunctiveProgramming.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl/graph/badge.svg?token=3FRPGMWF0J)](https://codecov.io/gh/hdavid16/DisjunctiveProgramming.jl) | [![DOI](https://proceedings.juliacon.org/papers/10.21105/jcon.00117/status.svg)](https://doi.org/10.21105/jcon.00117) |
+| [![Version](https://docs.juliahub.com/DisjunctiveProgramming/version.svg)](https://juliahub.com/ui/Packages/General/DisjunctiveProgramming) | [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://infiniteopt.github.io/DisjunctiveProgramming.jl/stable/) | [![Build Status](https://github.com/infiniteopt/DisjunctiveProgramming.jl/workflows/CI/badge.svg?branch=master)](https://github.com/infiniteopt/DisjunctiveProgramming.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/github/infiniteopt/DisjunctiveProgramming.jl/graph/badge.svg?token=z2CQwBiWzU)](https://codecov.io/github/infiniteopt/DisjunctiveProgramming.jl) | [![DOI](https://proceedings.juliacon.org/papers/10.21105/jcon.00117/status.svg)](https://doi.org/10.21105/jcon.00117) |
 
 `DisjunctiveProgramming` builds upon `JuMP` to add support GDP modeling objects which include:
 
@@ -19,12 +19,23 @@ into a variety of mixed-integer programs.
 - Logical constraints (also known as propositions)
 - Cardinality constraints
 
+With [InfiniteOpt.jl](https://github.com/infiniteopt/InfiniteOpt.jl) loaded, these
+objects can also be defined over continuous domains, so that a disjunction is decided
+over time, space, or uncertainty.
+
 It also supports automatic conversion of the GDP model into a regular mixed-integer `JuMP` model
 via a variety of reformulations which include:
 
 - Big-M
+- Multiple Big-M
 - Hull
+- P-Split
+- Cutting planes
 - Indicator constraints
+
+It can also pass the disjunctions directly to a solver that handles them natively,
+rather than reformulating them.
+
 Moreover, `DisjunctiveProgramming` provides an extension API to easily add new reformulation methods.
 
 ## License
