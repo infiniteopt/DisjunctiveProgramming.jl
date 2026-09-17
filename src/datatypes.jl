@@ -468,9 +468,10 @@ A type for using the cutting planes approach for disjunctive constraints.
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
 - `max_iter::Int`: Number of iterations (default = `3`).
 - `seperation_tolerance::T`: Tolerance for the separation problem (default = `1e-6`).
-- `final_reform_method::AbstractReformulationMethod`: Final reformulation 
+- `final_reform_method::AbstractReformulationMethod`: Final reformulation
 method to use after cutting planes (default = `BigM()`).
-- `M_value::T`: Big-M value to use in the final reformulation (default = `1e9`).
+- `M_value::T`: Big-M value of the relaxed BigM model the loop cuts
+against (default = `1e9`).
 """
 struct CuttingPlanes{O, T} <: AbstractReformulationMethod
     optimizer::O;
@@ -485,7 +486,8 @@ struct CuttingPlanes{O, T} <: AbstractReformulationMethod
         final_reform_method = BigM(),
         M_value::T = 1e9
     ) where {O, T}
-        new{O, T}(optimizer, max_iter, seperation_tolerance, final_reform_method, M_value)
+        new{O, T}(optimizer, max_iter, seperation_tolerance,
+            final_reform_method, M_value)
     end
 end
 
@@ -515,6 +517,35 @@ struct GDPSubmodel{M <: JuMP.AbstractModel,
     model::M
     decision_vars::Vector{V}
     fwd_map::Dict{V, Vector{W}}
+end
+
+# Per-run working state for one cutting planes solve: config copied
+# from `CuttingPlanes` plus the decision variables, the separation
+# submodel, and the support weights the separation objective and the
+# cuts share (unit weights for finite models; extensions store
+# quadrature weights at submodel build time).
+mutable struct _CuttingPlanes{O, T, V <: JuMP.AbstractVariableRef} <:
+        AbstractReformulationMethod
+    optimizer::O
+    max_iter::Int
+    separation_tolerance::T
+    final_reform_method::AbstractReformulationMethod
+    M_value::T
+    decision_vars::Vector{V}
+    weights::Dict{V, Vector{T}}
+    separation::Union{Nothing, GDPSubmodel{<:JuMP.AbstractModel, V}}
+
+    function _CuttingPlanes(
+        method::CuttingPlanes{O, T},
+        model::JuMP.AbstractModel
+        ) where {O, T}
+        dvars = collect_cutting_planes_vars(model)
+        V = eltype(dvars)
+        new{O, T, V}(method.optimizer, method.max_iter,
+            method.seperation_tolerance, method.final_reform_method,
+            method.M_value, dvars,
+            Dict{V, Vector{T}}(v => ones(T, 1) for v in dvars), nothing)
+    end
 end
 
 """

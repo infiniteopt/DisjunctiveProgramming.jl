@@ -94,15 +94,16 @@ function test_cp_loop_helpers()
     @objective(model, Max, x)
 
     method = CuttingPlanes(HiGHS.Optimizer)
-    decision_vars = DP.collect_cutting_planes_vars(model)
+    reform_state = DP._CuttingPlanes(method, model)
 
     # Build SEP first (from clean model)
-    separation = DP.copy_and_reformulate(model, decision_vars,
+    separation = DP.copy_and_reformulate(model, reform_state.decision_vars,
         Hull(), method)
     JuMP.relax_integrality(separation.model)
 
     # Setup rBM on original model
-    rBM, undo = DP.reformulate_and_relax(model, decision_vars, BigM(method.M_value), method)
+    rBM, undo = DP.reformulate_and_relax(model, reform_state.decision_vars,
+        BigM(method.M_value), method)
     optimize!(model, ignore_optimize_hook = true)
 
     # Extract solution
@@ -111,7 +112,7 @@ function test_cp_loop_helpers()
     @test length(rBM_sol[x]) == 1
 
     # Set SEP objective and solve
-    DP._set_separation_objective(separation, rBM_sol)
+    DP._set_separation_objective(separation, reform_state.weights, rBM_sol)
     optimize!(separation.model, ignore_optimize_hook = true)
     @test termination_status(separation.model) == MOI.OPTIMAL
 
@@ -133,10 +134,10 @@ function test_cp_cut_generation()
     @objective(model, Max, x)
 
     method = CuttingPlanes(HiGHS.Optimizer)
-    decision_vars = DP.collect_cutting_planes_vars(model)
+    reform_state = DP._CuttingPlanes(method, model)
 
     # Build SEP first (from clean model)
-    separation = DP.copy_and_reformulate(model, decision_vars,
+    separation = DP.copy_and_reformulate(model, reform_state.decision_vars,
         Hull(), method)
     JuMP.relax_integrality(separation.model)
 
@@ -146,10 +147,10 @@ function test_cp_cut_generation()
     JuMP.set_silent(model)
     relaxed = DP.relax_logical_vars(model)
     optimize!(model, ignore_optimize_hook = true)
-    rBM_sol = DP.extract_solution(model)
+    rBM_sol = DP.extract_solution(model, reform_state)
 
     # Solve SEP
-    DP._set_separation_objective(separation, rBM_sol)
+    DP._set_separation_objective(separation, reform_state.weights, rBM_sol)
     optimize!(separation.model, ignore_optimize_hook = true)
     separation_sol = DP.extract_solution(separation)
 
@@ -158,7 +159,7 @@ function test_cp_cut_generation()
         model;
         include_variable_in_set_constraints = false
     ))
-    DP.add_cut(model, decision_vars, rBM_sol, separation_sol)
+    DP.add_cut(model, reform_state, rBM_sol, separation_sol)
     num_con_after = length(JuMP.all_constraints(
         model;
         include_variable_in_set_constraints = false
@@ -167,7 +168,7 @@ function test_cp_cut_generation()
 
     # Re-solve with cut → should tighten
     optimize!(model, ignore_optimize_hook = true)
-    rBM_sol2 = DP.extract_solution(model)
+    rBM_sol2 = DP.extract_solution(model, reform_state)
     @test rBM_sol2[x][1] ≈ 4.0 atol = 0.1
 
     DP.unrelax_logical_vars(relaxed)
@@ -192,7 +193,6 @@ function test_reformulate_model()
     @test num_con >= 3
     @test_throws ErrorException DP.reformulate_model(42, method)
 end
-
 
 # Maximization where Hull is strictly tighter than BigM,
 # forcing many CP iterations with a tight tolerance.

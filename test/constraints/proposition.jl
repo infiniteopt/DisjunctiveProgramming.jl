@@ -488,6 +488,20 @@ function test_reformulate_clause_error()
     @test_throws ErrorException DP._reformulate_clause(model, ex)
 end
 
+function test_reformulate_clause_nonliteral_error()
+    model = GDPModel()
+    @variable(model, y[1:3], Logical)
+    ex = y[1] ∨ (y[2] ∧ y[3]) #a clause holding a non-literal
+    @test_throws ErrorException DP._reformulate_clause(model, ex)
+end
+
+function test_reformulate_proposition_error()
+    model = GDPModel()
+    @variable(model, y[1:2], Logical)
+    ex = DP._LogicalExpr{typeof(model)}(:xor, Any[y[1], y[2]])
+    @test_throws ErrorException DP._reformulate_proposition(model, ex)
+end
+
 function test_extension_propositions()
     model = GDPModel{MyModel, MyVarRef, MyConRef}()
     @variable(model, y[1:2], Logical(MyVar), start = true)
@@ -521,6 +535,8 @@ end
         test_intersection_reformulation()
         test_union_reformulation()
         test_reformulate_clause_error()
+        test_reformulate_clause_nonliteral_error()
+        test_reformulate_proposition_error()
     end
     @testset "Conjunctive Normal Form" begin
         test_isa_literal_other()

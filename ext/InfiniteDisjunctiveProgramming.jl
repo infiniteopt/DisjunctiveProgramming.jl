@@ -319,24 +319,21 @@ function DP.copy_and_reformulate(
     model::InfiniteOpt.InfiniteModel,
     decision_vars::Vector{InfiniteOpt.GeneralVariableRef},
     reform_method::DP.AbstractReformulationMethod,
-    method::DP.CuttingPlanes
+    method::DP._CuttingPlanes
     )
     DP.reformulate_model(model, reform_method)
     InfiniteOpt.build_transformation_backend!(model)
-    transcribed = InfiniteOpt.transformation_model(model)
-    transcription_fwd = Dict{InfiniteOpt.GeneralVariableRef,
-        Vector{JuMP.VariableRef}}()
-    for v in DP.collect_all_vars(model)
-        transcription_var = InfiniteOpt.transformation_variable(v)
-        var_prefs = InfiniteOpt.parameter_refs(v)
-        transcription_fwd[v] = isempty(var_prefs) ?
-            [transcription_var] : vec(transcription_var)
+    for (v, w) in _compute_quadrature_weights(model, decision_vars)
+        method.weights[v] = w
     end
+    transcribed = InfiniteOpt.transformation_model(model)
     sub_copy, copy_map = JuMP.copy_model(transcribed)
     fwd_map = Dict{InfiniteOpt.GeneralVariableRef, Vector{JuMP.VariableRef}}()
     for v in decision_vars
-        haskey(transcription_fwd, v) || continue
-        fwd_map[v] = [copy_map[transcribed_var] for transcribed_var in transcription_fwd[v]]
+        transcription_var = InfiniteOpt.transformation_variable(v)
+        tvars = isempty(InfiniteOpt.parameter_refs(v)) ?
+            [transcription_var] : vec(transcription_var)
+        fwd_map[v] = [copy_map[tv] for tv in tvars]
     end
     sub = DP.GDPSubmodel(sub_copy, decision_vars, fwd_map)
     JuMP.set_optimizer(sub.model, method.optimizer)
@@ -344,13 +341,163 @@ function DP.copy_and_reformulate(
     return sub
 end
 
+# One infinite parameter group: a scalar parameter, or the refs of a
+# dependent group. Both `parameter_refs(vref)` entries and
+# `parameter_refs(data)` take these two shapes.
+const _ParameterGroup = Union{InfiniteOpt.GeneralVariableRef,
+    Vector{InfiniteOpt.GeneralVariableRef}}
+
+# One support of a group: a value, or a joint support.
+const _GroupSupport = Union{Float64, Vector{Float64}}
+
+const _MeasureDataMap = Dict{_ParameterGroup,
+    InfiniteOpt.AbstractMeasureData}
+
+# Collect the objective's measure data (nested measures included),
+# keyed by the group the measure acts on, so a measure spanning
+# several parameters only matches a variable depending on that same
+# group. A group measured twice keeps the last measure found.
+_collect_measure_data(data, expr::Number) = nothing
+function _collect_measure_data(data::Dict, expr::InfiniteOpt.GeneralVariableRef)
+    dispatch = InfiniteOpt.dispatch_variable_ref(expr)
+    dispatch isa InfiniteOpt.MeasureRef || return nothing
+    md = InfiniteOpt.measure_data(expr)
+    data[InfiniteOpt.parameter_refs(md)] = md
+    return _collect_measure_data(data, InfiniteOpt.measure_function(expr))
+end
+function _collect_measure_data(data::Dict, expr::JuMP.GenericAffExpr)
+    for (v, _) in expr.terms
+        _collect_measure_data(data, v)
+    end
+    return nothing
+end
+function _collect_measure_data(data::Dict, expr::JuMP.GenericQuadExpr)
+    _collect_measure_data(data, expr.aff)
+    for (pair, _) in expr.terms
+        _collect_measure_data(data, pair.a)
+        _collect_measure_data(data, pair.b)
+    end
+    return nothing
+end
+function _collect_measure_data(data::Dict, expr::JuMP.GenericNonlinearExpr)
+    for arg in expr.args
+        _collect_measure_data(data, arg)
+    end
+    return nothing
+end
+
+# The parameter a group rounds its supports by.
+_group_parameter(group::InfiniteOpt.GeneralVariableRef) = group
+_group_parameter(group::Vector{InfiniteOpt.GeneralVariableRef}) = first(group)
+
+# Whether a (scalar) parameter ranges over a plain interval;
+# dependent groups and distribution parameters return false.
+_is_interval_parameter(::Vector{InfiniteOpt.GeneralVariableRef}) = false
+function _is_interval_parameter(pref::InfiniteOpt.GeneralVariableRef)
+    dispatch = InfiniteOpt.dispatch_variable_ref(pref)
+    return InfiniteOpt.infinite_domain(dispatch) isa
+        InfiniteOpt.IntervalDomain
+end
+
+const _ScalarMeasureData = Union{
+    InfiniteOpt.DiscreteMeasureData{InfiniteOpt.GeneralVariableRef, 1},
+    InfiniteOpt.FunctionalDiscreteMeasureData{InfiniteOpt.GeneralVariableRef}
+    }
+const _MultiMeasureData = Union{
+    InfiniteOpt.DiscreteMeasureData{Vector{InfiniteOpt.GeneralVariableRef}, 2},
+    InfiniteOpt.FunctionalDiscreteMeasureData{
+        Vector{InfiniteOpt.GeneralVariableRef}}
+    }
+
+# Weights one parameter group, keyed the way the transcription grid
+# stores its supports. Discrete data holds raw support values but the
+# parameter rounds them on insertion, so the keys are rounded to match.
+function _group_weights(
+    data::_ScalarMeasureData,
+    group::_ParameterGroup,
+    group_supports::Vector{<:_GroupSupport}
+    )
+    sig_digits = InfiniteOpt.significant_digits(_group_parameter(group))
+    supps = InfiniteOpt.supports(data)
+    weight_func = InfiniteOpt.weight_function(data)
+    return Dict{Float64, Float64}(
+        round(supps[i], sigdigits = sig_digits) => coeff * weight_func(supps[i])
+        for (i, coeff) in enumerate(InfiniteOpt.coefficients(data)))
+end
+function _group_weights(
+    data::_MultiMeasureData,
+    group::_ParameterGroup,
+    group_supports::Vector{<:_GroupSupport}
+    )
+    sig_digits = InfiniteOpt.significant_digits(_group_parameter(group))
+    supps = InfiniteOpt.supports(data)
+    weight_func = InfiniteOpt.weight_function(data)
+    return Dict{Vector{Float64}, Float64}(
+        round.(supps[:, i], sigdigits = sig_digits) =>
+            coeff * weight_func(supps[:, i])
+        for (i, coeff) in enumerate(InfiniteOpt.coefficients(data)))
+end
+
+# The objective never measures the group: a default integral for a
+# scalar interval parameter, a uniform average otherwise.
+function _group_weights(
+    ::Nothing,
+    group::_ParameterGroup,
+    group_supports::Vector{<:_GroupSupport}
+    )
+    if _is_interval_parameter(group)
+        data = InfiniteOpt.generate_integral_data(group,
+            JuMP.lower_bound(group), JuMP.upper_bound(group),
+            InfiniteOpt.UniTrapezoid())
+        return _group_weights(data, group, group_supports)
+    end
+    values = unique(group_supports)
+    return Dict(value => 1 / length(values) for value in values)
+end
+
+# Measure data that reports no weights of its own takes the default.
+function _group_weights(
+    data::InfiniteOpt.AbstractMeasureData,
+    group::_ParameterGroup,
+    group_supports::Vector{<:_GroupSupport}
+    )
+    @warn "Cannot read quadrature weights from measure data of type " *
+        "`$(typeof(data))`; using the default weighting instead." maxlog = 1
+    return _group_weights(nothing, group, group_supports)
+end
+
+# Quadrature weights read off the objective's measure data
+function _compute_quadrature_weights(
+    model::InfiniteOpt.InfiniteModel,
+    decision_vars::Vector{InfiniteOpt.GeneralVariableRef}
+    )
+    measure_data = _MeasureDataMap()
+    _collect_measure_data(measure_data, JuMP.objective_function(model))
+    weights = Dict{InfiniteOpt.GeneralVariableRef, Vector{Float64}}()
+    for v in decision_vars
+        prefs = InfiniteOpt.parameter_refs(v)
+        if isempty(prefs)
+            weights[v] = [1.0]
+            continue
+        end
+        supps = vec(InfiniteOpt.supports(v))
+        group_weights = [
+            _group_weights(get(measure_data, group, nothing), group,
+                [supp[j] for supp in supps])
+            for (j, group) in enumerate(prefs)]
+        weights[v] = [prod(get(group_weights[j], supp[j], 0.0)
+            for j in eachindex(group_weights)) for supp in supps]
+    end
+    return weights
+end
+
 # Read per-support values from the transformation backend.
-function DP.extract_solution(model::InfiniteOpt.InfiniteModel)
-    dvars = DP.collect_cutting_planes_vars(model)
-    V = eltype(dvars)
-    T = JuMP.value_type(typeof(model))
-    sol = Dict{V, Vector{T}}()
-    for v in dvars
+function DP.extract_solution(
+    model::InfiniteOpt.InfiniteModel,
+    reform_state::DP._CuttingPlanes
+    )
+    sol = Dict{InfiniteOpt.GeneralVariableRef, Vector{Float64}}()
+    for v in reform_state.decision_vars
         transcription_var = InfiniteOpt.transformation_variable(v)
         var_prefs = InfiniteOpt.parameter_refs(v)
         sol[v] = isempty(var_prefs) ? [JuMP.value(transcription_var)] :
@@ -359,28 +506,26 @@ function DP.extract_solution(model::InfiniteOpt.InfiniteModel)
     return sol
 end
 
-# Add a pointwise-sum cut directly to the transformation backend and mark
-# it ready so the next optimize! doesn't re-transcribe and wipe the cut.
+# Add a quadrature-weighted cut directly to the transformation backend
+# and mark it ready so the next optimize! doesn't re-transcribe and
+# wipe the cut.
 function DP.add_cut(
     model::InfiniteOpt.InfiniteModel,
-    decision_vars::Vector{InfiniteOpt.GeneralVariableRef},
+    reform_state::DP._CuttingPlanes,
     rBM_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}},
     sep_sol::Dict{<:JuMP.AbstractVariableRef, <:Vector{<:Number}}
     )
     transcribed = InfiniteOpt.transformation_model(model)
-    cut_expr = zero(JuMP.GenericAffExpr{
-        JuMP.value_type(typeof(transcribed)),
-        JuMP.variable_ref_type(transcribed)})
-    for var in decision_vars
-        haskey(rBM_sol, var) || continue
-        haskey(sep_sol, var) || continue
+    cut_expr = zero(JuMP.AffExpr)
+    for var in reform_state.decision_vars
         rbm_vals = rBM_sol[var]
         sep_vals = sep_sol[var]
         transcription_var = InfiniteOpt.transformation_variable(var)
         transcribed_vars = transcription_var isa AbstractArray ?
             vec(transcription_var) : [transcription_var]
+        w = reform_state.weights[var]
         for k in eachindex(transcribed_vars)
-            xi = 2 * (sep_vals[k] - rbm_vals[k])
+            xi = 2 * w[k] * (sep_vals[k] - rbm_vals[k])
             JuMP.add_to_expression!(cut_expr, xi, transcribed_vars[k])
             JuMP.add_to_expression!(cut_expr, -xi * sep_vals[k])
         end

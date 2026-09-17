@@ -15,6 +15,7 @@ import JuMP.Containers as _JuMPC
 
 # Load in the source files
 include("datatypes.jl")
+include("sets.jl")
 include("model.jl")
 include("logic.jl")
 include("variables.jl")
@@ -26,6 +27,7 @@ include("cuttingplanes.jl")
 include("hull.jl")
 include("mbm.jl")
 include("indicator.jl")
+include("direct.jl")
 include("print.jl")
 include("extension_api.jl")
 include("utilities.jl")

@@ -43,6 +43,10 @@ function test_disjunction_add_fail()
     @test_throws ErrorException disjunction(model, [yc[1]])
     @test_throws ErrorException disjunction(model, [yc[1], y[2]])
     @test_throws ErrorException disjunction(model, [y[1], yc[1]], Disjunct(y[2]))
+
+    other_model = GDPModel()
+    @variable(other_model, v[1:2], Logical)
+    @test_throws ErrorException disjunction(model, [y[1], v[1]]) #indicator from another model
 end
 
 function test_disjunction_add_success()
