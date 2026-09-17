@@ -148,6 +148,22 @@ function DP.get_constant(
     return constant + param_expr
 end
 
+# Parameters act as constants, so their perspective scales with the
+# indicator (e.g. a bare parameter row of a conic constraint)
+function DP.disaggregate_expression(
+    model::InfiniteOpt.InfiniteModel,
+    vref::InfiniteOpt.GeneralVariableRef,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::DP._Hull
+)
+    _is_parameter(vref) && return vref * bvref
+    if JuMP.is_binary(vref) ||
+        !haskey(method.disjunct_variables, (vref, bvref))
+        return vref
+    end
+    return method.disjunct_variables[vref, bvref]
+end
+
 function DP.disaggregate_expression(
     model::M,
     aff::JuMP.GenericAffExpr,

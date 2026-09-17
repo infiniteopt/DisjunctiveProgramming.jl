@@ -409,28 +409,51 @@ end
 """
     Hull{T} <: AbstractReformulationMethod
 
-A type for using the convex hull reformulation approach for disjunctive 
+A type for using the convex hull reformulation approach for disjunctive
 constraints.
 
 **Fields**
 - `value::T`: epsilon value for nonlinear hull reformulations (default = `1e-6`).
+- `quadratic::Symbol`: reformulation used for quadratic disjunct
+  constraints (default = `:epsilon`). Options are:
+  - `:epsilon`: ε-approximated perspective (Furman, Sawaya & Grossmann
+    2020).
+  - `:exact`: exact hull (Gusev & Bernal Neira 2025); routes each
+    constraint to CEHR when its quadratic part is convex and to GEHR
+    otherwise (equality constraints always use GEHR since they are
+    nonconvex).
+  - `:gehr`: always use the General Exact Hull Reformulation.
+  - `:cehr`: always use the Conic Exact Hull Reformulation (errors on
+    nonconvex quadratic constraints).
+  - `:cehr_conic`: CEHR with the cone written out explicitly as a
+    rotated second-order cone via a spectral factorization of the
+    quadratic part, for solvers that consume cones natively (errors on
+    nonconvex quadratic constraints).
 """
 struct Hull{T} <: AbstractReformulationMethod
     value::T
-    function Hull(ϵ::T = 1e-6) where {T}
-        new{T}(ϵ)
+    quadratic::Symbol
+    function Hull(ϵ::T = 1e-6; quadratic::Symbol = :epsilon) where {T}
+        if !(quadratic in (:epsilon, :exact, :gehr, :cehr, :cehr_conic))
+            error("Invalid `quadratic` option `:$(quadratic)`. Choose " *
+                  "from `:epsilon`, `:exact`, `:gehr`, `:cehr`, or " *
+                  "`:cehr_conic`.")
+        end
+        new{T}(ϵ, quadratic)
     end
 end
 
 # temp struct to store variable disaggregations (reset for each disjunction)
 mutable struct _Hull{V <: JuMP.AbstractVariableRef, T} <: AbstractReformulationMethod
     value::T
+    quadratic::Symbol
     disjunction_variables::Dict{V, Vector{V}}
     disjunct_variables::Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}
     function _Hull(method::Hull{T}, vrefs::Set{V}) where {T, V <: JuMP.AbstractVariableRef}
         new{V, T}(
             method.value,
-            Dict{V, Vector{V}}(vref => V[] for vref in vrefs), 
+            method.quadratic,
+            Dict{V, Vector{V}}(vref => V[] for vref in vrefs),
             Dict{Tuple{V, Union{V, JuMP.GenericAffExpr{T, V}}}, V}()
         )
     end

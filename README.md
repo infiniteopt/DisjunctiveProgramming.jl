@@ -169,6 +169,7 @@ The following reformulation methods are currently supported:
 2. [Hull](https://optimization.cbe.cornell.edu/index.php?title=Disjunctive_inequalities#Convex-Hull_Reformulation[1][2]): The `Hull` struct is created with the following optional arguments:
 
     - `value`: `ϵ` value to use when reformulating quadratic or nonlinear constraints via the perspective function proposed by [Furman, et al. [2020]](https://link.springer.com/article/10.1007/s10589-020-00176-0). Default: `1e-6`. `ϵ` values are currently global to the model. Constraint specific tolerances can be supported in future releases.
+    - `quadratic`: Reformulation to use for quadratic disjunct constraints. Default: `:epsilon` (the ε-approximated perspective function above). The exact hull reformulations of [Gusev & Bernal Neira [2025]](https://arxiv.org/abs/2508.16093) are available as `:exact` (automatically uses CEHR for constraints with a convex quadratic part and GEHR otherwise), `:gehr`, `:cehr`, and `:cehr_conic` (CEHR with the cone written out explicitly as a rotated second-order cone for solvers that use cones natively).
 
 3. [Indicator](https://jump.dev/JuMP.jl/stable/manual/constraints/#Indicator-constraints): This method reformulates each disjunct constraint into an indicator constraint with the Boolean reformulation counterpart of the Logical variable used to define the disjunct constraint.
 
@@ -191,6 +192,22 @@ The following reformulation methods are currently supported:
     - `seperation_tolerance`: Convergence tolerance for the separation problem objective. Default: `1e-6`.
     - `final_reform_method`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
     - `M_value`: Big-M value to use in the relaxed Big-M reformulation during iterations. Default: `1e9`.
+
+## Conic Constraints
+
+Disjunct constraints can also be defined with the conic sets `SecondOrderCone`, `RotatedSecondOrderCone`, `MOI.ExponentialCone`, and `MOI.PowerCone`. Big-M reformulates these by relaxing the constraint function along a fixed interior direction of the cone, and Hull produces the exact conic hull of [Bernal Neira & Grossmann [2021]](https://arxiv.org/abs/2109.09657).
+
+```julia
+using DisjunctiveProgramming
+
+model = GDPModel()
+@variable(model, -5 <= x[1:2] <= 5)
+@variable(model, 0 <= t <= 10)
+@variable(model, Y[1:2], Logical)
+@constraint(model, [t; x] in SecondOrderCone(), Disjunct(Y[1]))          # t >= ‖x‖
+@constraint(model, [x[1], 1, t] in MOI.ExponentialCone(), Disjunct(Y[2])) # t >= exp(x[1])
+@disjunction(model, Y)
+```
 
 ## Infinite-Dimensional GDP
 To model disjunctions, logical variables, and logical constraints with infinite-dimensional optimization problems (e.g., dynamic and stochastic optimization), DisjunctiveProgramming is also compatible with [InfiniteOpt.jl](https://github.com/infiniteopt/InfiniteOpt.jl). For this, the syntax is largely the same, users simply need to import `InfiniteOpt` and use `InfiniteGDPModel`. They also can use `InfiniteLogical` to declare infinite logical variables as shown below:

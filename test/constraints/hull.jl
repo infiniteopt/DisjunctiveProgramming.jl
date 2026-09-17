@@ -652,6 +652,327 @@ function test_extension_hull()
     # TODO add more tests
 end
 
+function test_vector_soc_hull()
+    model = GDPModel()
+    @variable(model, 10 <= x <= 100)
+    @variable(model, 10 <= t <= 100)
+    @variable(model, z, Logical)
+    @constraint(model, con, [t - 5, x - 5] in SecondOrderCone(), Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(1e-3), Set([x, t]))
+    prep_bounds([x, t], model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x, t]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    t_z = variable_by_name(model, "t_z")
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    @test ref[1].func == [t_z - 5*zbin, x_z - 5*zbin]
+    @test ref[1].set == MOI.SecondOrderCone(2)
+end
+
+function test_vector_rsoc_hull()
+    model = GDPModel()
+    @variable(model, 10 <= x <= 100)
+    @variable(model, 10 <= t <= 100)
+    @variable(model, z, Logical)
+    @constraint(model, con, [0.5, t - 2, x - 3] in RotatedSecondOrderCone(), Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(1e-3), Set([x, t]))
+    prep_bounds([x, t], model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x, t]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    t_z = variable_by_name(model, "t_z")
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    @test ref[1].func == [0.5*zbin, t_z - 2*zbin, x_z - 3*zbin]
+    @test ref[1].set == MOI.RotatedSecondOrderCone(3)
+end
+
+function test_vector_exp_hull()
+    model = GDPModel()
+    @variable(model, 10 <= x <= 100)
+    @variable(model, 10 <= t <= 100)
+    @variable(model, 10 <= w <= 100)
+    @variable(model, z, Logical)
+    @constraint(model, con, [x - 1, t - 1, w - 1] in MOI.ExponentialCone(), Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(1e-3), Set([x, t, w]))
+    prep_bounds([x, t, w], model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x, t, w]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    t_z = variable_by_name(model, "t_z")
+    w_z = variable_by_name(model, "w_z")
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    @test ref[1].func == [x_z - zbin, t_z - zbin, w_z - zbin]
+    @test ref[1].set == MOI.ExponentialCone()
+end
+
+function test_hull_quadratic_option_error()
+    @test_throws ErrorException Hull(quadratic = :bad_option)
+    @test Hull().quadratic == :epsilon
+    @test Hull(1e-3, quadratic = :exact).quadratic == :exact
+end
+#less than, greater than, equalto with GEHR forced
+function test_scalar_gehr_hull_1sided(moiset)
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x^2 + 3x in moiset(5), Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :gehr), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    gehr = x_z^2 + 3*x_z*zbin - 5*zbin^2
+    if moiset == MOI.GreaterThan # flipped to h(x) ≤ 0
+        @test isequal_canonical(ref[1].func, -gehr)
+        @test ref[1].set == MOI.LessThan(0.0)
+    else
+        @test isequal_canonical(ref[1].func, gehr)
+        expected = moiset == MOI.EqualTo ? MOI.EqualTo(0.0) :
+            MOI.LessThan(0.0)
+        @test ref[1].set == expected
+    end
+end
+#convex quadratic routed to CEHR under :exact
+function test_scalar_cehr_hull()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x^2 + 3x <= 5, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 2
+    t = variable_by_name(model, "t_cehr_z")
+    @test lower_bound(t) == 0
+    @test isequal_canonical(ref[1].func, x_z^2 - t*zbin)
+    @test ref[1].set == MOI.LessThan(0.0)
+    @test isequal_canonical(ref[2].func, t + 3*x_z - 5*zbin)
+    @test ref[2].set == MOI.LessThan(0.0)
+end
+#concave greater-than flips to a convex constraint and routes to CEHR
+function test_scalar_cehr_hull_concave_greater()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, -x^2 + 3x >= 1, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 2
+    t = variable_by_name(model, "t_cehr_z")
+    @test isequal_canonical(ref[1].func, x_z^2 - t*zbin)
+    @test isequal_canonical(ref[2].func, t - 3*x_z + 1*zbin)
+end
+#cehr_conic writes the cone out as an explicit rotated SOC
+function test_scalar_cehr_conic_hull()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x^2 + 3x <= 5, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :cehr_conic), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 2
+    t = variable_by_name(model, "t_cehr_z")
+    @test lower_bound(t) == 0
+    @test ref[1].set == MOI.RotatedSecondOrderCone(3)
+    @test isequal_canonical(ref[1].func[1], 0.5 * t)
+    @test isequal_canonical(ref[1].func[2], 1.0 * zbin)
+    # eigenvector sign is implementation-defined
+    @test abs(coefficient(ref[1].func[3], x_z)) ≈ 1.0
+    @test isequal_canonical(ref[2].func, t + 3*x_z - 5*zbin)
+    @test ref[2].set == MOI.LessThan(0.0)
+end
+#singular Q drops its zero eigenvalue rows from the cone
+function test_scalar_cehr_conic_rank_deficient()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, -2 <= w <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, (x + w)^2 <= 4, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :cehr_conic), Set([x, w]))
+    prep_bounds([x, w], model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x, w]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    w_z = variable_by_name(model, "w_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test ref[1].set == MOI.RotatedSecondOrderCone(3) # rank 1, not 2
+    row = ref[1].func[3]
+    s = sign(coefficient(row, x_z))
+    @test coefficient(row, x_z) ≈ s * 1.0
+    @test coefficient(row, w_z) ≈ s * 1.0
+end
+#cehr_conic rejects nonconvex and equality constraints like cehr
+function test_scalar_cehr_conic_errors()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, -2 <= w <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x*w <= 5, Disjunct(z))
+    @constraint(model, con_eq, x^2 == 4, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :cehr_conic), Set([x, w]))
+    prep_bounds([x, w], model, Hull())
+    DP._disaggregate_variables(model, z, Set([x, w]), method)
+    @test_throws ErrorException reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test_throws ErrorException reformulate_disjunct_constraint(
+        model, constraint_object(con_eq), zbin, method)
+end
+#all quadratic terms are pure on normal models, rest keeps the affine
+function test_split_quad_terms()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, w)
+    quad = @expression(model, x^2 + 2*x*w + 3*x + 2)
+    quad_part, affine_part = DP._split_quad_terms(quad)
+    @test isequal_canonical(quad_part, @expression(model, x^2 + 2*x*w))
+    @test isempty(affine_part.terms)
+    @test isequal_canonical(affine_part.aff, @expression(model, 3*x + 2))
+end
+#nonconvex quadratic routed to GEHR under :exact, error under :cehr
+function test_scalar_exact_hull_nonconvex()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, -2 <= w <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x*w <= 5, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x, w]))
+    prep_bounds([x, w], model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x, w]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    w_z = variable_by_name(model, "w_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func, x_z*w_z - 5*zbin^2)
+    @test ref[1].set == MOI.LessThan(0.0)
+    forced = DP._Hull(Hull(quadratic = :cehr), Set([x, w]))
+    forced.disjunct_variables = method.disjunct_variables
+    @test_throws ErrorException reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, forced)
+end
+#quadratic equality reformulated by GEHR, error under :cehr
+function test_scalar_exact_hull_equality()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, x^2 == 5, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func, x_z^2 - 5*zbin^2)
+    @test ref[1].set == MOI.EqualTo(0.0)
+    forced = DP._Hull(Hull(quadratic = :cehr), Set([x]))
+    forced.disjunct_variables = method.disjunct_variables
+    @test_throws ErrorException reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, forced)
+end
+#interval: CEHR on the upper side, GEHR on the (nonconvex) lower side
+function test_scalar_exact_hull_2sided()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, 2 <= x^2 <= 5, Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    @test length(ref) == 3
+    t = variable_by_name(model, "t_cehr_z")
+    @test isequal_canonical(ref[1].func, x_z^2 - t*zbin)
+    @test ref[1].set == MOI.LessThan(0.0)
+    @test isequal_canonical(ref[2].func, t - 5*zbin)
+    @test ref[2].set == MOI.LessThan(0.0)
+    @test isequal_canonical(ref[3].func, -x_z^2 + 2*zbin^2)
+    @test ref[3].set == MOI.LessThan(0.0)
+end
+#nonpositives, nonnegatives, zeros with exact reformulations
+function test_vector_exact_hull_1sided(moiset)
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, [x^2 - 5; x^2 - 5] in moiset(2), Disjunct(z))
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), zbin, method)
+    if moiset == MOI.Nonpositives # convex entries: CEHR per entry
+        @test length(ref) == 4
+        @test all(r.set == MOI.LessThan(0.0) for r in ref)
+        tvars = filter(v -> startswith(name(v), "t_cehr"), all_variables(model))
+        @test length(tvars) == 2
+        @test all(lower_bound(t) == 0 for t in tvars)
+    elseif moiset == MOI.Nonnegatives # flipped: nonconvex, GEHR
+        @test length(ref) == 2
+        for i in 1:2
+            @test isequal_canonical(ref[i].func, -x_z^2 + 5*zbin^2)
+            @test ref[i].set == MOI.LessThan(0.0)
+        end
+    else # Zeros: equalities, GEHR
+        @test length(ref) == 2
+        for i in 1:2
+            @test isequal_canonical(ref[i].func, x_z^2 - 5*zbin^2)
+            @test ref[i].set == MOI.EqualTo(0.0)
+        end
+    end
+end
+#quadratic expression without quadratic terms falls back to affine hull
+function test_exact_hull_affine_fallback()
+    model = GDPModel()
+    @variable(model, -2 <= x <= 3)
+    @variable(model, z, Logical)
+    zbin = variable_by_name(model, "z")
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    prep_bounds(x, model, Hull())
+    @test DP._disaggregate_variables(model, z, Set([x]), method) isa Nothing
+    x_z = variable_by_name(model, "x_z")
+    con = JuMP.build_constraint(
+        error, convert(QuadExpr, 2.0x + 1.0), MOI.LessThan(5.0))
+    ref = reformulate_disjunct_constraint(model, con, zbin, method)
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func, 2*x_z + 1*zbin - 5*zbin)
+    @test ref[1].set == MOI.LessThan(0.0)
+    con = JuMP.build_constraint(
+        error, convert(QuadExpr, 2.0x + 1.0), MOI.EqualTo(5.0))
+    ref = reformulate_disjunct_constraint(model, con, zbin, method)
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func, 2*x_z + 1*zbin - 5*zbin)
+    @test ref[1].set == MOI.EqualTo(0.0)
+end
+
 @testset "Hull Reformulation" begin
     test_default_hull()
     test_set_hull()
@@ -676,6 +997,7 @@ end
         test_scalar_var_hull_1sided(s)
         test_scalar_affine_hull_1sided(s)
         test_scalar_quadratic_hull_1sided(s)
+        test_scalar_gehr_hull_1sided(s)
         test_scalar_nonlinear_hull_1sided(s)
     end
     test_scalar_nonlinear_hull_1sided_error()
@@ -683,6 +1005,7 @@ end
         test_vector_var_hull_1sided(s)
         test_vector_affine_hull_1sided(s)
         test_vector_quadratic_hull_1sided(s)
+        test_vector_exact_hull_1sided(s)
         test_vector_nonlinear_hull_1sided(s)
     end
     test_vector_nonlinear_hull_1sided_error()
@@ -691,6 +1014,20 @@ end
     test_scalar_quadratic_hull_2sided()
     test_scalar_nonlinear_hull_2sided()
     test_scalar_nonlinear_hull_2sided_error()
+    test_hull_quadratic_option_error()
+    test_split_quad_terms()
+    test_scalar_cehr_hull()
+    test_scalar_cehr_hull_concave_greater()
+    test_scalar_cehr_conic_hull()
+    test_scalar_cehr_conic_rank_deficient()
+    test_scalar_cehr_conic_errors()
+    test_scalar_exact_hull_nonconvex()
+    test_scalar_exact_hull_equality()
+    test_scalar_exact_hull_2sided()
+    test_exact_hull_affine_fallback()
     test_exactly1_error()
     test_extension_hull()
+    test_vector_soc_hull()
+    test_vector_rsoc_hull()
+    test_vector_exp_hull()
 end

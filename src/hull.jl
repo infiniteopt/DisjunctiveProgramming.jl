@@ -135,13 +135,12 @@ function disaggregate_expression(
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
     method::_Hull
     )
-    #get affine part
-    new_expr = disaggregate_expression(model, quad.aff, bvref, method)
-    #get quadratic part
+    quad_part, affine_part = _split_quad_terms(quad)
+    new_expr = _disaggregate_affine_terms(model, affine_part, bvref, method)
     ϵ = method.value
-    for (pair, coeff) in quad.terms
-        da_ref = method.disjunct_variables[pair.a, bvref]
-        db_ref = method.disjunct_variables[pair.b, bvref]
+    for (pair, coeff) in quad_part.terms
+        da_ref = disaggregate_expression(model, pair.a, bvref, method)
+        db_ref = disaggregate_expression(model, pair.b, bvref, method)
         new_expr += coeff * da_ref * db_ref / ((1-ϵ)*bvref+ϵ)
     end
     return new_expr
@@ -254,7 +253,8 @@ function reformulate_disjunction(model::JuMP.AbstractModel, disj::Disjunction, m
     return ref_cons
 end
 function reformulate_disjunction(model::JuMP.AbstractModel, disj::Disjunction, method::_Hull)
-    return reformulate_disjunction(model, disj, Hull(method.value))
+    hull = Hull(method.value; quadratic = method.quadratic)
+    return reformulate_disjunction(model, disj, hull)
 end
 
 function reformulate_disjunct_constraint(
@@ -269,15 +269,41 @@ function reformulate_disjunct_constraint(
     reform_con = JuMP.build_constraint(error, new_func, S(0))
     return [reform_con]
 end
+
+# Promote disaggregated vector rows to one concrete expression type
+# (rows mix affine and quadratic when parameters scale the indicator)
+function _combine_expressions(exprs::Vector)
+    T = mapreduce(typeof, promote_type, exprs)
+    return convert.(T, exprs)
+end
+
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel, 
-    con::JuMP.VectorConstraint{T, S, R}, 
-    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}, 
+    model::JuMP.AbstractModel,
+    con::JuMP.VectorConstraint{T, S, R},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::_Hull
 ) where {T <: JuMP.AbstractJuMPScalar, S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros}, R}
-    new_func = JuMP.@expression(model, [i=1:con.set.dimension],
-        disaggregate_expression(model, con.func[i], bvref, method)
-    )
+    new_func = _combine_expressions([
+        disaggregate_expression(model, func, bvref, method)
+        for func in con.func
+    ])
+    reform_con = JuMP.build_constraint(error, new_func, con.set)
+    return [reform_con]
+end
+
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.VectorConstraint{T, S, R},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+) where {
+    T <: Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    S <: _ConicSets, R
+}
+    new_func = _combine_expressions([
+        disaggregate_expression(model, func, bvref, method)
+        for func in con.func
+    ])
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
@@ -332,8 +358,8 @@ function reformulate_disjunct_constraint(
     return [reform_con_gt, reform_con_lt]
 end
 function reformulate_disjunct_constraint(
-    model::JuMP.AbstractModel, 
-    con::JuMP.ScalarConstraint{T, S}, 
+    model::JuMP.AbstractModel,
+    con::JuMP.ScalarConstraint{T, S},
     bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
     method::_Hull
 ) where {T <: JuMP.GenericNonlinearExpr, S <: _MOI.Interval}
@@ -349,4 +375,305 @@ function reformulate_disjunct_constraint(
     reform_con_gt = JuMP.build_constraint(error, new_func_gt, _MOI.GreaterThan(0))
     reform_con_lt = JuMP.build_constraint(error, new_func_lt, _MOI.LessThan(0))
     return [reform_con_gt, reform_con_lt]
+end
+
+################################################################################
+#                       EXACT QUADRATIC HULL (GEHR / CEHR)
+################################################################################
+# Exact hull reformulations for quadratic disjunct constraints
+# (Gusev & Bernal Neira 2025, arXiv:2508.16093), replacing the
+# ε-approximated perspective. Both are exact for the full relaxation
+# y ∈ [0, 1] given finite variable bounds (the disaggregated variable
+# bounds force ν = 0 when y = 0):
+# - GEHR (Eq. 13): multiply cl h̃(ν, y) ≤ 0 through by y to get
+#   ν'Qν + (a'ν)y + d*y² ≤ 0. Valid for any Q (nonconvex included)
+#   and for equalities, but the function is nonconvex in (ν, y).
+# - CEHR (Eq. 22): for convex constraints (Q ⪰ 0), epigraph variable
+#   t ≥ 0 with ν'Qν - t*y ≤ 0 and t + a'ν + d*y ≤ 0. The cone
+#   constraint is left unfactorized so conic-aware solvers recognize
+#   the rotated SOC in presolve; at y = 0 the link forces t = 0.
+
+# Assemble the symmetric coefficient matrix of the quadratic terms and
+# the variables indexing its rows, in order of first appearance
+function _quad_coefficient_matrix(
+    quad::JuMP.GenericQuadExpr{C, V}
+    ) where {C, V}
+    index = Dict{V, Int}()
+    vars = V[]
+    for (pair, _) in quad.terms, v in (pair.a, pair.b)
+        haskey(index, v) || (push!(vars, v); index[v] = length(vars))
+    end
+    quad_matrix = zeros(float(C), length(vars), length(vars))
+    for (pair, coeff) in quad.terms
+        i, j = index[pair.a], index[pair.b]
+        if i == j
+            quad_matrix[i, i] += coeff
+        else
+            quad_matrix[i, j] += coeff / 2
+            quad_matrix[j, i] += coeff / 2
+        end
+    end
+    return quad_matrix, vars
+end
+
+# Check whether the quadratic part is convex (Q ⪰ 0 up to a tolerance)
+function _is_convex_quad(quad::JuMP.GenericQuadExpr)
+    quad_matrix, _ = _quad_coefficient_matrix(quad)
+    tol = 1e-9 * max(one(eltype(quad_matrix)), maximum(abs, quad_matrix))
+    return LinearAlgebra.eigmin(LinearAlgebra.Symmetric(quad_matrix)) >= -tol
+end
+
+# Split the quadratic terms into `quad_part` (both factors get
+# disaggregated) and `affine_part` (coefficient-only factors such as
+# infinite parameters, plus the affine part), which is affine in the
+# disaggregated variables
+function _split_quad_terms(quad::JuMP.GenericQuadExpr)
+    quad_part = zero(typeof(quad))
+    affine_part = typeof(quad)(copy(quad.aff))
+    for (pair, coeff) in quad.terms
+        if requires_disaggregation(pair.a) &&
+            requires_disaggregation(pair.b)
+            JuMP.add_to_expression!(quad_part, coeff, pair.a, pair.b)
+        else
+            JuMP.add_to_expression!(affine_part, coeff, pair.a, pair.b)
+        end
+    end
+    return quad_part, affine_part
+end
+
+# Disaggregate the remainder terms: coefficient-only factors scale
+# with the indicator like constants do
+function _disaggregate_affine_terms(
+    model::JuMP.AbstractModel,
+    affine_part::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    new_expr = disaggregate_expression(model, affine_part.aff, bvref, method)
+    for (pair, coeff) in affine_part.terms
+        if requires_disaggregation(pair.a)
+            dref = disaggregate_expression(model, pair.a, bvref, method)
+            new_expr = JuMP.@expression(model,
+                new_expr + coeff*dref*pair.b)
+        elseif requires_disaggregation(pair.b)
+            dref = disaggregate_expression(model, pair.b, bvref, method)
+            new_expr = JuMP.@expression(model,
+                new_expr + coeff*pair.a*dref)
+        else
+            new_expr = JuMP.@expression(model,
+                new_expr + coeff*pair.a*pair.b*bvref)
+        end
+    end
+    return new_expr
+end
+
+# Disaggregate the quadratic terms without the ε-perspective division
+function _disaggregate_quad_terms(
+    model::JuMP.AbstractModel,
+    quad::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    new_expr = zero(typeof(quad))
+    for (pair, coeff) in quad.terms
+        da_ref = disaggregate_expression(model, pair.a, bvref, method)
+        db_ref = disaggregate_expression(model, pair.b, bvref, method)
+        JuMP.add_to_expression!(new_expr, coeff, da_ref, db_ref)
+    end
+    return new_expr
+end
+
+# GEHR expression (Eq. 13) for a constraint normalized to h(x) vs 0:
+# ν'Qν + (a'ν)*y + d*y²
+function _gehr_expression(
+    model::JuMP.AbstractModel,
+    h::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    quad_part, affine_part = _split_quad_terms(h)
+    quad_part = _disaggregate_quad_terms(model, quad_part, bvref, method)
+    affine_part = _disaggregate_affine_terms(model, affine_part, bvref, method)
+    return JuMP.@expression(model, quad_part + affine_part*bvref)
+end
+
+# Add the CEHR epigraph variable t >= 0 for one quadratic constraint;
+# its type is inferred from the constraint function so extensions can
+# match it to the constraint (e.g. infinite over its parameters)
+function _add_cehr_epigraph_variable(
+    model::JuMP.AbstractModel,
+    h::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr}
+    )
+    base = "t_cehr_$(bvref)"
+    n = count(
+        v -> startswith(JuMP.name(v), base),
+        _reformulation_variables(model)
+    )
+    epigraph_vref = create_variable(model, VariableProperties(h))
+    JuMP.set_lower_bound(epigraph_vref, 0)
+    JuMP.set_name(epigraph_vref, n == 0 ? base : "$(base)_$(n + 1)")
+    push!(_reformulation_variables(model), epigraph_vref)
+    return epigraph_vref
+end
+
+# CEHR for solvers that accept cones: the quadratic is handed over as
+# an explicit rotated second-order cone
+function _cehr_conic_constraints(
+    model::JuMP.AbstractModel,
+    h::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    quad_part, affine_part = _split_quad_terms(h)
+    epigraph_vref = _add_cehr_epigraph_variable(model, h, bvref)
+    quad_matrix, vars = _quad_coefficient_matrix(quad_part)
+    factors = LinearAlgebra.eigen(LinearAlgebra.Symmetric(quad_matrix))
+    tol = 1e-9 * max(one(eltype(quad_matrix)), maximum(abs, quad_matrix))
+    dvars = [disaggregate_expression(model, v, bvref, method)
+             for v in vars]
+    rows = [0.5 * epigraph_vref, zero(0.5 * epigraph_vref) + bvref]
+    for k in findall(>(tol), factors.values) # drop zero eigenvalues
+        push!(rows, sqrt(factors.values[k]) * sum(
+            factors.vectors[j, k] * dvars[j] for j in eachindex(dvars)))
+    end
+    affine_part = _disaggregate_affine_terms(model, affine_part, bvref, method)
+    epigraph_link = JuMP.@expression(model, epigraph_vref + affine_part)
+    return [
+        JuMP.build_constraint(error, rows,
+            _MOI.RotatedSecondOrderCone(length(rows))),
+        JuMP.build_constraint(error, epigraph_link, _MOI.LessThan(0))
+    ]
+end
+
+# Reformulate a quadratic constraint normalized to h(x) ≤ 0 exactly:
+# CEHR when the quadratic part is convex (unless `:gehr` is forced),
+# GEHR otherwise. CEHR stays algebraic for solvers that do not accept
+# cones; `:cehr_conic` writes the cone out for solvers that do.
+function _exact_quad_hull(
+    model::JuMP.AbstractModel,
+    h::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    quad_part, affine_part = _split_quad_terms(h)
+    if isempty(quad_part.terms) # affine in the disaggregated variables
+        affine_part = _disaggregate_affine_terms(
+            model, affine_part, bvref, method)
+        return [JuMP.build_constraint(error, affine_part, _MOI.LessThan(0))]
+    elseif _is_convex_quad(quad_part) && method.quadratic == :cehr_conic
+        return _cehr_conic_constraints(model, h, bvref, method)
+    elseif _is_convex_quad(quad_part) && method.quadratic != :gehr
+        epigraph_vref = _add_cehr_epigraph_variable(model, h, bvref)
+        quad_part = _disaggregate_quad_terms(model, quad_part, bvref, method)
+        affine_part = _disaggregate_affine_terms(
+            model, affine_part, bvref, method)
+        cone_func = JuMP.@expression(model, quad_part - epigraph_vref*bvref)
+        epigraph_link = JuMP.@expression(model, epigraph_vref + affine_part)
+        return [
+            JuMP.build_constraint(error, cone_func, _MOI.LessThan(0)),
+            JuMP.build_constraint(error, epigraph_link, _MOI.LessThan(0))
+        ]
+    elseif method.quadratic in (:cehr, :cehr_conic)
+        error("`Hull(quadratic = :$(method.quadratic))` requires convex " *
+              "quadratic disjunct constraints. Use `quadratic = :exact` " *
+              "or `quadratic = :gehr` for nonconvex quadratic constraints.")
+    else
+        gehr_func = _gehr_expression(model, h, bvref, method)
+        return [JuMP.build_constraint(error, gehr_func, _MOI.LessThan(0))]
+    end
+end
+
+# Reformulate a quadratic equality normalized to h(x) = 0 exactly
+# (GEHR; CEHR does not apply since quadratic equalities are nonconvex)
+function _exact_quad_hull_eq(
+    model::JuMP.AbstractModel,
+    h::JuMP.GenericQuadExpr,
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+    )
+    quad_part, affine_part = _split_quad_terms(h)
+    if isempty(quad_part.terms) # affine in the disaggregated variables
+        affine_part = _disaggregate_affine_terms(
+            model, affine_part, bvref, method)
+        return [JuMP.build_constraint(error, affine_part, _MOI.EqualTo(0))]
+    elseif method.quadratic in (:cehr, :cehr_conic)
+        error("`Hull(quadratic = :$(method.quadratic))` does not support " *
+              "quadratic equality constraints. Use `quadratic = :exact` " *
+              "or `quadratic = :gehr` instead.")
+    end
+    gehr_func = _gehr_expression(model, h, bvref, method)
+    return [JuMP.build_constraint(error, gehr_func, _MOI.EqualTo(0))]
+end
+
+# scalar quadratic constraint
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.ScalarConstraint{T, S},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+) where {
+    T <: JuMP.GenericQuadExpr,
+    S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}
+}
+    set_value = _set_value(con.set)
+    if method.quadratic == :epsilon # ε-approximated perspective
+        new_func = disaggregate_expression(model, con.func, bvref, method)
+        new_func -= set_value*bvref
+        return [JuMP.build_constraint(error, new_func, S(0))]
+    elseif S <: _MOI.EqualTo
+        return _exact_quad_hull_eq(model, con.func - set_value, bvref, method)
+    else # normalize to h(x) ≤ 0 (flip GreaterThan constraints)
+        h = S <: _MOI.LessThan ? con.func - set_value : set_value - con.func
+        return _exact_quad_hull(model, h, bvref, method)
+    end
+end
+# scalar quadratic constraint in an interval
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.ScalarConstraint{T, S},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+) where {T <: JuMP.GenericQuadExpr, S <: _MOI.Interval}
+    if method.quadratic == :epsilon # ε-approximated perspective
+        new_func = disaggregate_expression(model, con.func, bvref, method)
+        new_func_gt = JuMP.@expression(model, new_func - con.set.lower*bvref)
+        new_func_lt = JuMP.@expression(model, new_func - con.set.upper*bvref)
+        return [
+            JuMP.build_constraint(error, new_func_gt, _MOI.GreaterThan(0)),
+            JuMP.build_constraint(error, new_func_lt, _MOI.LessThan(0))
+        ]
+    end
+    return vcat(
+        _exact_quad_hull(model, con.func - con.set.upper, bvref, method),
+        _exact_quad_hull(model, con.set.lower - con.func, bvref, method)
+    )
+end
+# vector quadratic constraint
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.VectorConstraint{T, S, R},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::_Hull
+) where {
+    T <: JuMP.GenericQuadExpr,
+    S <: Union{_MOI.Nonpositives, _MOI.Nonnegatives, _MOI.Zeros}, R
+}
+    if method.quadratic == :epsilon # ε-approximated perspective
+        new_func = _combine_expressions([
+            disaggregate_expression(model, func, bvref, method)
+            for func in con.func
+        ])
+        return [JuMP.build_constraint(error, new_func, con.set)]
+    end
+    reform_cons = Vector{AbstractConstraint}()
+    for func in con.func # normalize each entry to h(x) ≤ 0 or h(x) = 0
+        h = S <: _MOI.Nonnegatives ? -func : func
+        if S <: _MOI.Zeros
+            append!(reform_cons, _exact_quad_hull_eq(model, h, bvref, method))
+        else
+            append!(reform_cons, _exact_quad_hull(model, h, bvref, method))
+        end
+    end
+    return reform_cons
 end

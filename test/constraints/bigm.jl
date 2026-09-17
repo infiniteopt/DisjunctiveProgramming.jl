@@ -313,6 +313,67 @@ function test_extension_bigm()
     @test refcons[4].set == MOI.GreaterThan(10.0 - 110)
 end
 
+function test_soc_bigm()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, t)
+    @variable(model, y, Logical)
+    @constraint(model, con, [t, x] in SecondOrderCone(), Disjunct(y))
+    bvref = binary_variable(y)
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), bvref, BigM(100, false))
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func[1], t + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[2], 1.0*x)
+    @test ref[1].set == MOI.SecondOrderCone(2)
+end
+
+function test_rsoc_bigm()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, t)
+    @variable(model, y, Logical)
+    @constraint(model, con, [0.5, t, x] in RotatedSecondOrderCone(), Disjunct(y))
+    bvref = binary_variable(y)
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), bvref, BigM(100, false))
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func[1], 0.5 + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[2], t + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[3], 1.0*x)
+    @test ref[1].set == MOI.RotatedSecondOrderCone(3)
+end
+
+function test_exp_bigm()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, t)
+    @variable(model, w)
+    @variable(model, y, Logical)
+    @constraint(model, con, [x, t, w] in MOI.ExponentialCone(), Disjunct(y))
+    bvref = binary_variable(y)
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), bvref, BigM(100, false))
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func[1], 1.0*x)
+    @test isequal_canonical(ref[1].func[2], t + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[3], w + 200*(1 - bvref))
+    @test ref[1].set == MOI.ExponentialCone()
+end
+
+function test_power_bigm()
+    model = GDPModel()
+    @variable(model, x)
+    @variable(model, t)
+    @variable(model, w)
+    @variable(model, y, Logical)
+    @constraint(model, con, [x, t, w] in MOI.PowerCone(0.5), Disjunct(y))
+    bvref = binary_variable(y)
+    ref = reformulate_disjunct_constraint(model, constraint_object(con), bvref, BigM(100, false))
+    @test length(ref) == 1
+    @test isequal_canonical(ref[1].func[1], x + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[2], t + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[3], 1.0*w)
+    @test ref[1].set == MOI.PowerCone(0.5)
+end
+
 @testset "BigM Reformulation" begin
     test_default_bigm()
     test_default_tighten_bigm()
@@ -333,4 +394,8 @@ end
     test_zeros_bigm()
     test_nested_bigm()
     test_extension_bigm()
+    test_soc_bigm()
+    test_rsoc_bigm()
+    test_exp_bigm()
+    test_power_bigm()
 end

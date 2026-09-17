@@ -167,6 +167,8 @@ The following reformulation methods are currently supported:
 
 3. [Indicator](https://jump.dev/JuMP.jl/stable/manual/constraints/#Indicator-constraints): This method reformulates each disjunct constraint into an indicator constraint with the Boolean reformulation counterpart of the Logical variable used to define the disjunct constraint. This is invoked with [`Indicator`](@ref).
 
+Disjunct constraints can also be defined with the conic sets `SecondOrderCone`, `RotatedSecondOrderCone`, `MOI.ExponentialCone`, and `MOI.PowerCone`; these are supported by the [`BigM`](@ref) and [`Hull`](@ref) reformulations, where the hull of a conic constraint is exact. Exact hull reformulations for quadratic disjunct constraints (GEHR/CEHR) are available via the `quadratic` keyword argument of [`Hull`](@ref).
+
 ## Release Notes
 
 Prior to `v0.4.0`, the package did not leverage the JuMP extension capabilities and was not as robust. For these earlier releases, refer to [Perez, Joshi, and Grossmann, 2023](https://arxiv.org/abs/2304.10492v1) and the following [JuliaCon 2022 Talk](https://www.youtube.com/watch?v=AMIrgTTfUkI).

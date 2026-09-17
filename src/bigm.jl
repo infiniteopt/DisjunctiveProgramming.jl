@@ -251,3 +251,45 @@ function reformulate_disjunct_constraint(
     reform_con_np = JuMP.build_constraint(error, new_func_np, _MOI.Nonpositives(con.set.dimension))
     return [reform_con_nn, reform_con_np]
 end
+
+################################################################################
+#                       BIG-M FOR CONIC CONSTRAINTS
+################################################################################
+# Big-M for `func in K`: add slack `M*(1 - y)*d` along a fixed interior
+# direction `d` of the cone, so `func + M*d in K`.
+
+# SOC: (t, x...) with t >= ||x||.  d = e1 = (1, 0, ...); interior since
+# 1 > ||0|| = 0.  Bumping t alone makes (t + M) >= ||x|| hold for big M.
+_conic_bigm_direction(set::_MOI.SecondOrderCone) =
+    [i == 1 ? 1.0 : 0.0 for i in 1:_MOI.dimension(set)]
+# Rotated SOC: (t, u, x...) with 2*t*u >= ||x||^2, t,u >= 0.  d =
+# (1,1,0,...); interior since 2*1*1 = 2 > 0.  Both t,u must grow so
+# 2(t+M)(u+M) ~ 2*M^2 dominates ||x||^2; bumping one leaves 2*t*0 = 0.
+_conic_bigm_direction(set::_MOI.RotatedSecondOrderCone) =
+    [i <= 2 ? 1.0 : 0.0 for i in 1:_MOI.dimension(set)]
+# Exp cone: (x, y, z) with z >= y*exp(x/y), y >= 0.  d = (0, 1, 2);
+# interior since 2 > 1*exp(0) = 1.  As M grows, exp(x/(y+M)) -> 1 so the
+# RHS ~ y + M ~ M while z grows as 2M; the factor 2 keeps z above it.
+_conic_bigm_direction(::_MOI.ExponentialCone) = [0.0, 1.0, 2.0]
+# Power cone: (x, y, z) with x^a * y^(1-a) >= |z|, x,y >= 0, a the cone
+# exponent.  d = (1,1,0); interior since 1^a * 1^(1-a) = 1 > 0.  Bumping
+# x,y makes (x+M)^a (y+M)^(1-a) ~ M dominate the fixed |z|; z untouched.
+_conic_bigm_direction(::_MOI.PowerCone) = [1.0, 1.0, 0.0]
+
+function reformulate_disjunct_constraint(
+    model::JuMP.AbstractModel,
+    con::JuMP.VectorConstraint{T, S, R},
+    bvref::Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    method::BigM
+) where {
+    T <: Union{JuMP.AbstractVariableRef, JuMP.GenericAffExpr},
+    S <: _ConicSets, R
+}
+    M = method.value
+    d = _conic_bigm_direction(con.set)
+    new_func = JuMP.@expression(model, [i=1:_MOI.dimension(con.set)],
+        con.func[i] + M*(1 - bvref)*d[i]
+    )
+    reform_con = JuMP.build_constraint(error, new_func, con.set)
+    return [reform_con]
+end
