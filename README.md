@@ -61,7 +61,7 @@ A `GDPModel` is a `JuMP Model` with a `GDPData` field in the model's `.ext` dict
 - `Logical Constraints`: Selector (cardinality) or proposition (Boolean) constraints describing the relationships between the logical variables.
 - `Disjunct Constraints`: Constraints associated with each disjunct in the model.
 - `Disjunctions`: Disjunction constraints.
-- `Solution Method`: The reformulation technique or solution method. Currently supported methods include Big-M, Hull, and Indicator Constraints.
+- `Solution Method`: The reformulation technique or solution method. Currently supported methods include Big-M, Multiple Big-M, Hull, P-Split, Cutting Planes, Indicator Constraints, and Direct lowering to a solver that handles disjunctions itself.
 - `Reformulation Variables`: List of JuMP variables created when reformulating a GDP model into a MIP model.
 - `Reformulation Constraints`: List of constraints created when reformulating a GDP model into a MIP model.
 - `Ready to Optimize`: Flag indicating if the model can be optimized.
@@ -191,6 +191,8 @@ The following reformulation methods are currently supported:
     - `seperation_tolerance`: Convergence tolerance for the separation problem objective. Default: `1e-6`.
     - `final_reform_method`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
     - `M_value`: Big-M value to use in the relaxed Big-M reformulation during iterations. Default: `1e9`.
+
+7. Direct: This method does not reformulate the disjunctions at all. Each disjunction is lowered to a single vector constraint in a `DisjunctionSet`, which is passed to the solver so that it can apply its own disjunctive algorithm (e.g., [DisjunctiveAlgorithms.jl](https://github.com/infiniteopt/DisjunctiveAlgorithms.jl)). The `Direct` struct takes no arguments, and the constraint function of each lowered disjunction stacks the activation expression, the disjunct indicators, and the disjunct constraint rows, which are located with `activation_index`, `indicator_indices`, and `row_indices`.
 
 ## Infinite-Dimensional GDP
 To model disjunctions, logical variables, and logical constraints with infinite-dimensional optimization problems (e.g., dynamic and stochastic optimization), DisjunctiveProgramming is also compatible with [InfiniteOpt.jl](https://github.com/infiniteopt/InfiniteOpt.jl). For this, the syntax is largely the same, users simply need to import `InfiniteOpt` and use `InfiniteGDPModel`. They also can use `InfiniteLogical` to declare infinite logical variables as shown below:
