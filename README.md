@@ -176,6 +176,7 @@ The following reformulation methods are currently supported:
 
     - `optimizer`: Optimizer to use when solving subproblems to determine M values. This is a required value.
     - `default_M`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+    - `sampler`: M-value sampler for infinite models. Default: `ExhaustiveSampler()`, which solves an M subproblem at every support. Pass a `GPSampler` to instead solve a subset of the supports and fill the rest with a conservative Gaussian-process estimate. Ignored for finite models.
 
 5. [P-Split](https://arxiv.org/abs/2202.05198): This method reformulates each disjunct constraint into P constraints, each with a partitioned group defined by the user. This method requires that terms in the constraint be convex additively seperable with respect to each variable. The `PSplit` struct is created with the following required arguments:
 
@@ -222,6 +223,8 @@ optimize!(model, gdp_method = Hull())
 # check the results
 value(W)
 ```
+
+When the `MBM` reformulation is used on an infinite model, an M subproblem is solved at every support by default. Loading [AbstractGPs.jl](https://github.com/JuliaGaussianProcesses/AbstractGPs.jl) (`using AbstractGPs`) enables an additional extension that instead solves M at a subset of the supports and fills the rest with a conservative Gaussian-process estimate, which can substantially reduce the number of subproblem solves. To opt in, pass a `GPSampler` via the `sampler` keyword, e.g. `MBM(optimizer, sampler = GPSampler())` (squared exponential kernel with the lengthscale selected by marginal likelihood), `GPSampler(GP(Matern52Kernel()))` (a custom prior, used as given), or `GPSampler(GP(with_lengthscale(Matern52Kernel(), 0.2)))` (lengthscale pinned). The prior is an `AbstractGPs.AbstractGP`, so a bare kernel must be wrapped in `GP(...)`; it is fit to support coordinates normalized to `[0, 1]` per dimension, so any lengthscale is relative to the unit box. The filled values are heuristic upper estimates rather than certificates; see the `GPSampler` docstring for the tuning keywords (`std_dev_margin`, `frac_supports`, `detect_uniform_M`, `initial_supports`).
 
 ## Release Notes
 

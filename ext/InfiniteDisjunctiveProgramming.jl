@@ -238,56 +238,84 @@ function DP.prepare_max_M_objective(
     return obj.set.lower - obj_func
 end
 
-# Constant interpolation
-function _interpolate(
-    grids::NTuple{N, AbstractVector{<:Real}},
-    values::AbstractArray{<:Real, N}
-    ) where {N}
+# Candidate indices along one axis of the M array: the corners of the
+# grid cell bracketing a scalar query (independent parameter), or the
+# column matching a joint-support query (dependent group; every column
+# when the query is off-support, so the estimate stays conservative)
+function _axis_candidates(grid::AbstractVector{<:Real}, arg::Real)
+    lo = clamp(searchsortedlast(grid, arg), 1, length(grid) - 1)
+    return lo:(lo + 1)
+end
+function _axis_candidates(grid::AbstractMatrix{<:Real}, arg)
+    j = findfirst(k -> isapprox(view(grid, :, k), arg, atol = 1e-10),
+                  axes(grid, 2))
+    return isnothing(j) ? axes(grid, 2) : (j:j)
+end
+
+# Constant interpolation: max of `values` over the candidate indices
+function _interpolate(grids::Tuple, values::AbstractArray{<:Real})
     # mimic the call form of Interpolations.jl's interpolation
-    return (args...) -> _interpolate_at(grids, values, args)
+    return (args...) -> maximum(
+        values[I...] for I in Iterators.product(
+            map(_axis_candidates, grids, args)...))
 end
 
-function _interpolate_at(
-    grids::NTuple{N, AbstractVector{<:Real}},
-    values::AbstractArray{<:Real, N},
-    args::NTuple{N, <:Real}
-    ) where {N}
-    # lower-corner cell index per dimension
-    idx_lo = ntuple(d -> 
-        clamp(searchsortedlast(grids[d], args[d]),1, length(grids[d]) - 1), N
+# The infinite parameters of `mini_expr` and their supports, in the
+# ascending order of `parameter_refs`. An independent parameter gives
+# its sorted support vector; a dependent group gives the matrix whose
+# columns are its joint supports. Grids are read off the mini model so
+# their column order matches the transcription axes; the returned
+# prefs are the main-model parameters.
+function _support_grids(
+    sub::DP.GDPSubmodel, mini_expr::JuMP.AbstractJuMPScalar)
+    reverse_map = Dict(ws[1] => v for (v, ws) in sub.fwd_map)
+    mini_prefs = InfiniteOpt.parameter_refs(mini_expr)
+    prefs = Tuple(getindex.(Ref(reverse_map), p) for p in mini_prefs)
+    return prefs, Tuple(InfiniteOpt.supports(p) for p in mini_prefs)
+end
+
+# Solve the M subproblem exactly at every support
+function DP.sample_M_values(
+    sampler::DP.ExhaustiveSampler,
+    objectives::AbstractArray,
+    sub::DP.GDPSubmodel,
+    method::DP._MBM,
+    support_grids::Tuple
     )
-    # max over the 2^N corners; bit d of k picks lower or upper
-    return maximum(
-        values[ntuple(d -> idx_lo[d] +((k >> (d - 1)) & 1), N)...]
-        for k in 0:(2^N - 1)
-        )
+    M_vals = Array{Float64}(undef, size(objectives))
+    for I in eachindex(objectives)
+        m = DP.raw_M(sub, objectives[I], method)
+        m === nothing && return nothing
+        M_vals[I] = m
+    end
+    return M_vals
 end
 
-# Transcribe mini_expr, solve per support on the transcribed JuMP
-# model, and aggregate to a scalar if uniform, else to a parameter
-# function on main.
+# Transcribe mini_expr, compute the per-support M values with the
+# method's sampler, and aggregate to a scalar if uniform, else to a
+# parameter function on main.
 function DP.raw_M(
     sub::DP.GDPSubmodel{<:InfiniteOpt.InfiniteModel},
     mini_expr::JuMP.AbstractJuMPScalar,
     method::DP._MBM
     )
     objectives = InfiniteOpt.transformation_expression(mini_expr)
-    transcribed = InfiniteOpt.transformation_model(sub.model)
-    inner_sub = DP.GDPSubmodel(transcribed,JuMP.VariableRef[],
-        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}()
-        )
-    M_vals = Array{typeof(method.default_M)}(undef, size(objectives))
-    for I in eachindex(objectives)
-        m = DP.raw_M(inner_sub, objectives[I], method)
-        m === nothing && return nothing
-        M_vals[I] = m
+    # transcription orders the dimensions by parameter group, which is
+    # not the ascending order `parameter_refs` gives the grids below
+    group_idxs = InfiniteOpt.parameter_group_int_indices(mini_expr)
+    if length(group_idxs) > 1 && ndims(objectives) == length(group_idxs)
+        objectives = permutedims(objectives, sortperm(group_idxs))
     end
+    transcribed = InfiniteOpt.transformation_model(sub.model)
+    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
+        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
+    prefs, grids = _support_grids(sub, mini_expr)
+    M_vals = DP.sample_M_values(method.sampler, objectives,
+        inner_sub, method, grids)
+    M_vals === nothing && return nothing
+    M_vals isa Number && return M_vals
     all(==(first(M_vals)), M_vals) && return first(M_vals)
-    mini_prefs = InfiniteOpt.parameter_refs(mini_expr)
-    reverse_map = Dict(ws[1] => v for (v, ws) in sub.fwd_map)
-    prefs = Tuple(reverse_map[p] for p in mini_prefs)
-    main = JuMP.owner_model(first(prefs))
-    grids = Tuple(InfiniteOpt.supports(p) for p in prefs)
+    main = JuMP.owner_model(first(keys(sub.fwd_map)))
     param_func = InfiniteOpt.build_parameter_function(
         error, _interpolate(grids, M_vals), prefs)
     return InfiniteOpt.add_parameter_function(main, param_func)
