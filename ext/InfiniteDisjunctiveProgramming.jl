@@ -293,22 +293,26 @@ end
 
 # Transcribe mini_expr, compute the per-support M values with the
 # method's sampler, and aggregate to a scalar if uniform, else to a
-# parameter function on main.
+# parameter function on main. A finite mini_expr transcribes to one
+# expression, so its single M subproblem is solved directly.
 function DP.raw_M(
     sub::DP.GDPSubmodel{<:InfiniteOpt.InfiniteModel},
     mini_expr::JuMP.AbstractJuMPScalar,
     method::DP._MBM
     )
     objectives = InfiniteOpt.transformation_expression(mini_expr)
+    transcribed = InfiniteOpt.transformation_model(sub.model)
+    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
+        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
+    if objectives isa JuMP.AbstractJuMPScalar
+        return DP.raw_M(inner_sub, objectives, method)
+    end
     # transcription orders the dimensions by parameter group, which is
     # not the ascending order `parameter_refs` gives the grids below
     group_idxs = InfiniteOpt.parameter_group_int_indices(mini_expr)
     if length(group_idxs) > 1 && ndims(objectives) == length(group_idxs)
         objectives = permutedims(objectives, sortperm(group_idxs))
     end
-    transcribed = InfiniteOpt.transformation_model(sub.model)
-    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
-        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
     prefs, grids = _support_grids(sub, mini_expr)
     M_vals = DP.sample_M_values(method.sampler, objectives,
         inner_sub, method, grids)
