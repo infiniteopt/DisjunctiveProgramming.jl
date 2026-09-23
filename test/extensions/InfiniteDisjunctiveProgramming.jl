@@ -364,11 +364,11 @@ function test_logical_value()
     @test eltype(val) == Bool
 end
 
-# raw_M against an InfiniteModel where M is constant across supports.
+# compute_M against an InfiniteModel where M is constant across supports.
 # Setup: x(t) ∈ [0, 10], disj1: x ≥ 5, disj2: x ≤ 3.
 # For disj1 slack r(x) = 5 - x maximized over disj2's region x ∈ [0, 3]:
 # max(5 - x) = 5 at x = 0. Same at every support ⇒ scalar M = 5.
-function test_raw_M_infinite_scalar()
+function test_compute_M_infinite_scalar()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
     @variable(model, 0 <= x <= 10, Infinite(t))
@@ -382,14 +382,14 @@ function test_raw_M_infinite_scalar()
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
     @test length(InfiniteOpt.parameter_refs(obj)) == 1
-    @test DP.raw_M(sub, obj, mbm) == 5.0
+    @test DP.compute_M(sub, obj, mbm) == 5.0
 end
 
-# raw_M with a support-varying M. Setup: x(t) ∈ [0, 10], disj1: x ≤ 2t,
+# compute_M with a support-varying M. Setup: x(t) ∈ [0, 10], disj1: x ≤ 2t,
 # disj2: x ≥ 0.5. Slack r(x) = x - 2t maximized over x ∈ [0.5, 10]:
-# max(x - 2t) = 10 - 2t. Varies with t ⇒ raw_M returns a pfunc whose
+# max(x - 2t) = 10 - 2t. Varies with t ⇒ compute_M returns a pfunc whose
 # raw values at supports are max-of-cell upper bounds for 10 - 2t.
-function test_raw_M_infinite_param_function()
+function test_compute_M_infinite_param_function()
     model = InfiniteGDPModel()
     supports = [0.0, 0.25, 0.5, 0.75, 1.0]
     @infinite_parameter(model, t ∈ [0, 1], supports = supports)
@@ -404,7 +404,7 @@ function test_raw_M_infinite_param_function()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    M = DP.raw_M(sub, obj, mbm)
+    M = DP.compute_M(sub, obj, mbm)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
     # max-of-corners is conservative: raw_fn(t) ≥ 10 - 2t at supports.
@@ -413,13 +413,13 @@ function test_raw_M_infinite_param_function()
     end
 end
 
-# raw_M over two infinite parameters with different support counts.
+# compute_M over two infinite parameters with different support counts.
 # Transcription orders the objective dimensions by parameter group,
 # which need not be the ascending order of the grids, so the M values
 # must be permuted to line up. Setup: x(t, s) in [0, 10],
 # disj1: x <= t + s, disj2: x >= 0.5. Slack r(x) = x - t - s
 # maximized over x in [0.5, 10]: 10 - t - s.
-function test_raw_M_infinite_two_params()
+function test_compute_M_infinite_two_params()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
     @infinite_parameter(model, s ∈ [0, 1], supports = [0.0, 1.0])
@@ -433,7 +433,7 @@ function test_raw_M_infinite_two_params()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    M = DP.raw_M(sub, obj, mbm)
+    M = DP.compute_M(sub, obj, mbm)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
     for t_val in [0.0, 0.5, 1.0], s_val in [0.0, 1.0]
@@ -443,8 +443,8 @@ end
 
 # Dependent parameters with a uniform M short-circuit to a scalar
 # before any support grid is needed. Setup as in
-# test_raw_M_infinite_scalar, over a dependent parameter array.
-function test_raw_M_infinite_dependent_params()
+# test_compute_M_infinite_scalar, over a dependent parameter array.
+function test_compute_M_infinite_dependent_params()
     model = InfiniteGDPModel()
     @infinite_parameter(model, ξ[1:2] ∈ [0, 1], num_supports = 4)
     @variable(model, 0 <= x <= 10, Infinite(ξ))
@@ -457,14 +457,14 @@ function test_raw_M_infinite_dependent_params()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    @test DP.raw_M(sub, obj, mbm) == 5.0
+    @test DP.compute_M(sub, obj, mbm) == 5.0
 end
 
 # Dependent parameters with M varying over the joint supports: the
 # parameter function looks M up at each joint support and falls back
 # to the conservative max off-support. Setup: x(ξ) in [0, 10],
 # disj1: x <= ξ[1] + ξ[2], disj2: x >= 0.5, so M(ξ) = 10 - ξ1 - ξ2.
-function test_raw_M_infinite_dependent_varying()
+function test_compute_M_infinite_dependent_varying()
     model = InfiniteGDPModel()
     @infinite_parameter(model, ξ[1:2] ∈ [0, 1], num_supports = 4)
     @variable(model, 0 <= x <= 10, Infinite(ξ))
@@ -477,7 +477,7 @@ function test_raw_M_infinite_dependent_varying()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    M = DP.raw_M(sub, obj, mbm)
+    M = DP.compute_M(sub, obj, mbm)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
     S = InfiniteOpt.supports(ξ)
@@ -1188,11 +1188,11 @@ end
 
     @testset "MBM" begin
         test_interpolate()
-        test_raw_M_infinite_scalar()
-        test_raw_M_infinite_param_function()
-        test_raw_M_infinite_two_params()
-        test_raw_M_infinite_dependent_params()
-        test_raw_M_infinite_dependent_varying()
+        test_compute_M_infinite_scalar()
+        test_compute_M_infinite_param_function()
+        test_compute_M_infinite_two_params()
+        test_compute_M_infinite_dependent_params()
+        test_compute_M_infinite_dependent_varying()
         test_mbm_finite_and_integer_var()
         test_mbm_infinite_simple()
         test_mbm_infinite_param_dependent()
