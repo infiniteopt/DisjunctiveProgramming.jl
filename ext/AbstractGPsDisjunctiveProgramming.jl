@@ -128,7 +128,7 @@ function DP.sample_M_values(
     n = length(indices)
     solved = Dict{Int, Float64}()
     solve_at(index::Int) = begin
-        M_val = DP.raw_M(sub, objectives[indices[index]], method)
+        M_val = DP.compute_M(sub, objectives[indices[index]], method)
         M_val === nothing && return false
         solved[index] = M_val
         return true
