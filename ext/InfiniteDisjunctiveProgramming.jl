@@ -284,7 +284,7 @@ function DP.sample_M_values(
     )
     M_vals = Array{Float64}(undef, size(objectives))
     for I in eachindex(objectives)
-        m = DP.raw_M(sub, objectives[I], method)
+        m = DP.compute_M(sub, objectives[I], method)
         m === nothing && return nothing
         M_vals[I] = m
     end
@@ -293,9 +293,8 @@ end
 
 # Transcribe mini_expr, compute the per-support M values with the
 # method's sampler, and aggregate to a scalar if uniform, else to a
-# parameter function on main. A finite mini_expr transcribes to one
-# expression, so its single M subproblem is solved directly.
-function DP.raw_M(
+# parameter function on main.
+function DP.compute_M(
     sub::DP.GDPSubmodel{<:InfiniteOpt.InfiniteModel},
     mini_expr::JuMP.AbstractJuMPScalar,
     method::DP._MBM

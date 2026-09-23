@@ -34,9 +34,9 @@ function test_gp_sampler_kwargs()
     @test_throws ErrorException GPSampler(initial_supports = Float64[])
 end
 
-# Mirror of test_raw_M_infinite_scalar: uniform seed M values collapse
+# Mirror of test_compute_M_infinite_scalar: uniform seed M values collapse
 # to the exactly-solved scalar under the GP sampler
-function test_gp_raw_M_scalar()
+function test_gp_compute_M_scalar()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
     @variable(model, 0 <= x <= 10, Infinite(t))
@@ -50,12 +50,12 @@ function test_gp_raw_M_scalar()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    @test DP.raw_M(sub, obj, mbm) == 5.0
+    @test DP.compute_M(sub, obj, mbm) == 5.0
 end
 
 # With frac_supports = 1.0 every support is solved exactly, so the GP
 # sampler must reproduce the exact grid parameter function
-function test_gp_raw_M_matches_exact()
+function test_gp_compute_M_matches_exact()
     function pfunc_values(sampler, supports)
         model = InfiniteGDPModel()
         @infinite_parameter(model, t ∈ [0, 1], supports = supports)
@@ -71,7 +71,7 @@ function test_gp_raw_M_matches_exact()
             model, DP.DisjunctConstraintRef[con2], mbm)
         obj = DP.prepare_max_M_objective(
             model, JuMP.constraint_object(con), sub)
-        M = DP.raw_M(sub, obj, mbm)
+        M = DP.compute_M(sub, obj, mbm)
         @test M isa InfiniteOpt.GeneralVariableRef
         return [InfiniteOpt.raw_function(M)(t_val) for t_val in supports]
     end
@@ -92,8 +92,8 @@ end
 # Two independent parameters: the GP path builds 2-D coordinates and
 # fits a multivariate GP; with frac_supports = 1.0 every support is solved
 # exactly, so the parameter function matches the exhaustive one. Setup
-# as in test_raw_M_infinite_two_params: M(t, s) = 10 - t - s.
-function test_gp_raw_M_two_params()
+# as in test_compute_M_infinite_two_params: M(t, s) = 10 - t - s.
+function test_gp_compute_M_two_params()
     function pfunc_values(sampler)
         model = InfiniteGDPModel()
         @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
@@ -109,7 +109,7 @@ function test_gp_raw_M_two_params()
             model, DP.DisjunctConstraintRef[con2], mbm)
         obj = DP.prepare_max_M_objective(
             model, JuMP.constraint_object(con), sub)
-        M = DP.raw_M(sub, obj, mbm)
+        M = DP.compute_M(sub, obj, mbm)
         @test M isa InfiniteOpt.GeneralVariableRef
         raw_fn = InfiniteOpt.raw_function(M)
         return [raw_fn(t_val, s_val)
@@ -122,8 +122,8 @@ end
 # Dependent parameters: the joint supports become the GP coordinates
 # directly; with frac_supports = 1.0 every support is solved exactly, so the
 # M values match the exhaustive ones. Setup as in
-# test_raw_M_infinite_dependent_varying: M(ξ) = 10 - ξ[1] - ξ[2].
-function test_gp_raw_M_dependent()
+# test_compute_M_infinite_dependent_varying: M(ξ) = 10 - ξ[1] - ξ[2].
+function test_gp_compute_M_dependent()
     model = InfiniteGDPModel()
     @infinite_parameter(model, ξ[1:2] ∈ [0, 1], num_supports = 6)
     @variable(model, 0 <= x <= 10, Infinite(ξ))
@@ -137,7 +137,7 @@ function test_gp_raw_M_dependent()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    M = DP.raw_M(sub, obj, mbm)
+    M = DP.compute_M(sub, obj, mbm)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
     S = InfiniteOpt.supports(ξ)
@@ -233,7 +233,7 @@ end
 # GP is fit and the unsolved supports keep their std_dev_margin * sd cushion,
 # which must sit above the M that detection would have returned.
 function test_gp_detect_uniform_M_off()
-    function raw_M_with(detect)
+    function compute_M_with(detect)
         model = InfiniteGDPModel()
         @infinite_parameter(model, t ∈ [0, 1], num_supports = 20)
         @variable(model, 0 <= x <= 10, Infinite(t))
@@ -247,10 +247,10 @@ function test_gp_detect_uniform_M_off()
             model, DP.DisjunctConstraintRef[con2], mbm)
         obj = DP.prepare_max_M_objective(
             model, JuMP.constraint_object(con), sub)
-        return DP.raw_M(sub, obj, mbm)
+        return DP.compute_M(sub, obj, mbm)
     end
-    @test raw_M_with(true) == 5.0
-    M = raw_M_with(false)
+    @test compute_M_with(true) == 5.0
+    M = compute_M_with(false)
     @test M isa InfiniteOpt.GeneralVariableRef
     raw_fn = InfiniteOpt.raw_function(M)
     vals = [raw_fn(t) for t in range(0, 1, length = 20)]
@@ -276,7 +276,7 @@ function test_gp_detect_uniform_M_off_dependent()
         model, DP.DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
-    @test DP.raw_M(sub, obj, mbm) == 5.0
+    @test DP.compute_M(sub, obj, mbm) == 5.0
 end
 
 function test_gp_unknown_sampler_error()
@@ -299,10 +299,10 @@ end
 
 @testset "AbstractGPsDisjunctiveProgramming" begin
     test_gp_sampler_kwargs()
-    test_gp_raw_M_scalar()
-    test_gp_raw_M_matches_exact()
-    test_gp_raw_M_two_params()
-    test_gp_raw_M_dependent()
+    test_gp_compute_M_scalar()
+    test_gp_compute_M_matches_exact()
+    test_gp_compute_M_two_params()
+    test_gp_compute_M_dependent()
     test_gp_mbm_solve_equivalence()
     test_gp_periodic_M_seeds()
     test_gp_detect_uniform_M_off()

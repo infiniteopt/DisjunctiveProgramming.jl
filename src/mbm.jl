@@ -244,7 +244,7 @@ end
     prepare_max_M_objective(model, obj::ScalarConstraint, sub::GDPSubmodel)
 
 Convert a constraint into an objective expression for M-value
-maximization. Returns a single JuMP expression to pass to `raw_M`.
+maximization. Returns a single JuMP expression to pass to `compute_M`.
 """
 function prepare_max_M_objective(
     ::JuMP.AbstractModel,
@@ -267,14 +267,14 @@ function prepare_max_M_objective(
 end
 
 """
-    raw_M(sub::GDPSubmodel, objective, method::_MBM)
+    compute_M(sub::GDPSubmodel, objective, method::_MBM)
 
-Maximize `objective` over `sub` to obtain one raw M value for MBM.
+Maximize `objective` over `sub` to obtain one M value for MBM.
 Returns `max(obj_value, 0)` on optimal, `nothing` on infeasible
 (signals the constraint is redundant in the combined region), or
 `method.default_M` otherwise (unbounded, numerical failure, etc).
 """
-function raw_M(
+function compute_M(
     sub::GDPSubmodel{<:JuMP.AbstractModel},
     objective::JuMP.AbstractJuMPScalar,
     method::_MBM
@@ -299,7 +299,7 @@ function _maximize_M(
     method::_MBM
     ) where {T, S <: Union{_MOI.LessThan, _MOI.GreaterThan}}
     sub = _get_submodel(model, constraints, method)
-    return raw_M(sub,
+    return compute_M(sub,
         prepare_max_M_objective(model, objective, sub), method)
 end
 
@@ -329,11 +329,13 @@ function _maximize_M(
     set_value = objective.set.value
     ge_obj = JuMP.ScalarConstraint(objective.func, MOI.GreaterThan(set_value))
     le_obj = JuMP.ScalarConstraint(objective.func, MOI.LessThan(set_value))
-    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
-    (raw_lower === nothing || raw_upper === nothing) &&
+    lower_M = compute_M(sub,
+        prepare_max_M_objective(model, ge_obj, sub), method)
+    upper_M = compute_M(sub,
+        prepare_max_M_objective(model, le_obj, sub), method)
+    (lower_M === nothing || upper_M === nothing) &&
         return nothing
-    return [raw_lower, raw_upper]
+    return [lower_M, upper_M]
 end
 
 # Interval: solve both lower and upper bound directions.
@@ -349,11 +351,13 @@ function _maximize_M(
         MOI.GreaterThan(set_values[1]))
     le_obj = JuMP.ScalarConstraint(objective.func,
         MOI.LessThan(set_values[2]))
-    raw_lower = raw_M(sub, prepare_max_M_objective(model, ge_obj, sub), method)
-    raw_upper = raw_M(sub, prepare_max_M_objective(model, le_obj, sub), method)
-    (raw_lower === nothing || raw_upper === nothing) &&
+    lower_M = compute_M(sub,
+        prepare_max_M_objective(model, ge_obj, sub), method)
+    upper_M = compute_M(sub,
+        prepare_max_M_objective(model, le_obj, sub), method)
+    (lower_M === nothing || upper_M === nothing) &&
         return nothing
-    return [raw_lower, raw_upper]
+    return [lower_M, upper_M]
 end
 
 # Nonpositives: per-row LessThan solves.
@@ -369,11 +373,11 @@ function _maximize_M(
     for i in 1:objective.set.dimension
         le_obj = JuMP.ScalarConstraint(
             objective.func[i], MOI.LessThan(zero(val_type)))
-        raw = raw_M(sub,
+        M_value = compute_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
-        raw === nothing && return nothing
-        push!(results, raw)
+        M_value === nothing && return nothing
+        push!(results, M_value)
     end
     return results
 end
@@ -392,11 +396,11 @@ function _maximize_M(
         ge_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.GreaterThan(zero(val_type)))
-        raw = raw_M(sub,
+        M_value = compute_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
-        raw === nothing && return nothing
-        push!(results, raw)
+        M_value === nothing && return nothing
+        push!(results, M_value)
     end
     return results
 end
@@ -418,15 +422,15 @@ function _maximize_M(
         le_obj = JuMP.ScalarConstraint(
             objective.func[i],
             MOI.LessThan(zero(val_type)))
-        raw_ge = raw_M(sub,
+        ge_M = compute_M(sub,
             prepare_max_M_objective(model, ge_obj, sub),
             method)
-        raw_le = raw_M(sub,
+        le_M = compute_M(sub,
             prepare_max_M_objective(model, le_obj, sub),
             method)
-        (raw_ge === nothing || raw_le === nothing) &&
+        (ge_M === nothing || le_M === nothing) &&
             return nothing
-        push!(results, max(raw_ge, raw_le))
+        push!(results, max(ge_M, le_M))
     end
     return results
 end
