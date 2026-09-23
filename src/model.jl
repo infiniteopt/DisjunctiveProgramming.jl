@@ -81,6 +81,7 @@ _exactly1_constraints(model::JuMP.AbstractModel) = gdp_data(model).exactly1_cons
 _indicator_to_binary(model::JuMP.AbstractModel) = gdp_data(model).indicator_to_binary
 _indicator_to_constraints(model::JuMP.AbstractModel) = gdp_data(model).indicator_to_constraints
 _constraint_to_indicator(model::JuMP.AbstractModel) = gdp_data(model).constraint_to_indicator
+_product_to_parents(model::JuMP.AbstractModel) = gdp_data(model).product_to_parents
 _reformulation_variables(model::JuMP.AbstractModel) = gdp_data(model).reformulation_variables
 _reformulation_constraints(model::JuMP.AbstractModel) = gdp_data(model).reformulation_constraints
 _variable_bounds(model::JuMP.AbstractModel) = gdp_data(model).variable_bounds

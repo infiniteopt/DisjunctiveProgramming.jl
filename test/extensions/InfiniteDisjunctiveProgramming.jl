@@ -778,6 +778,75 @@ function test_CuttingPlanes_infinite_simple()
         [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
 end
 
+# Build two disjunctions over t, both acting on x(t)
+function _basic_step_infinite_model()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 5, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @variable(model, Z[1:2], InfiniteLogical(t))
+    @constraint(model, x <= 1, Disjunct(Y[1]))
+    @constraint(model, 2 <= x <= 3, Disjunct(Y[2]))
+    @constraint(model, x <= 1, Disjunct(Z[1]))
+    @constraint(model, 4 <= x <= 5, Disjunct(Z[2]))
+    d1 = disjunction(model, Y)
+    d2 = disjunction(model, Z)
+    @objective(model, Max, ∫(x, t))
+    return model, x, d1, d2
+end
+
+# The product indicators must vary over the parents' infinite
+# parameters so the linking constraints hold pointwise
+function test_basic_step_infinite_indicators()
+    model, _, d1, d2 = _basic_step_infinite_model()
+    new_dref = apply_basic_step(model, [d1, d2], name = "bs")
+    W = constraint_object(new_dref).indicators
+    @test length(W) == 4
+    for w in W
+        prefs = InfiniteOpt.parameter_refs(binary_variable(w))
+        @test length(prefs) == 1
+        @test JuMP.name(only(prefs)) == "t"
+        @test length(product_parents(w)) == 2
+    end
+    @test !is_valid(model, d1) && !is_valid(model, d2)
+    # the logical-variable delete disambiguation
+    model2 = InfiniteGDPModel()
+    @infinite_parameter(model2, t2 in [0, 1])
+    @variable(model2, U, InfiniteLogical(t2))
+    JuMP.delete(model2, U)
+    @test !is_valid(model2, U)
+end
+
+function test_basic_step_infinite_solve()
+    model, _, _, _ = _basic_step_infinite_model()
+    optimize!(model, gdp_method = BigM())
+    base_obj = objective_value(model)
+    for method in (BigM(), Hull())
+        model, x, d1, d2 = _basic_step_infinite_model()
+        apply_basic_step(model, [d1, d2])
+        optimize!(model, gdp_method = method)
+        @test termination_status(model) == MOI.OPTIMAL
+        @test objective_value(model) ≈ base_obj atol = 1e-4
+    end
+end
+
+# Intersecting the disjunctions tightens the Hull relaxation: alone
+# each admits x up to 3 or 5, together only x <= 1 is consistent
+function test_basic_step_infinite_hull_tightness()
+    function hull_bound(; basic_step)
+        model, _, d1, d2 = _basic_step_infinite_model()
+        basic_step && apply_basic_step(model, [d1, d2])
+        reformulate_model(model, Hull())
+        relax_integrality(model)
+        optimize!(model, ignore_optimize_hook = true)
+        return objective_value(model)
+    end
+    after = hull_bound(basic_step = true)
+    @test after <= hull_bound(basic_step = false) + 1e-6
+    @test after ≈ 1 atol = 1e-4
+end
+
 function test_CuttingPlanes_infinite_two_disj()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
@@ -1198,6 +1267,12 @@ end
         test_mbm_infinite_param_dependent()
         test_mbm_vs_bigm_infinite()
         test_mbm_with_derivatives()
+    end
+
+    @testset "Basic Steps" begin
+        test_basic_step_infinite_indicators()
+        test_basic_step_infinite_solve()
+        test_basic_step_infinite_hull_tightness()
     end
 
     @testset "Integration" begin
