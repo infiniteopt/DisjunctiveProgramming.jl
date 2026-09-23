@@ -300,15 +300,18 @@ function DP.compute_M(
     method::DP._MBM
     )
     objectives = InfiniteOpt.transformation_expression(mini_expr)
+    transcribed = InfiniteOpt.transformation_model(sub.model)
+    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
+        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
+    if objectives isa JuMP.AbstractJuMPScalar
+        return DP.compute_M(inner_sub, objectives, method)
+    end
     # transcription orders the dimensions by parameter group, which is
     # not the ascending order `parameter_refs` gives the grids below
     group_idxs = InfiniteOpt.parameter_group_int_indices(mini_expr)
     if length(group_idxs) > 1 && ndims(objectives) == length(group_idxs)
         objectives = permutedims(objectives, sortperm(group_idxs))
     end
-    transcribed = InfiniteOpt.transformation_model(sub.model)
-    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
-        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
     prefs, grids = _support_grids(sub, mini_expr)
     M_vals = DP.sample_M_values(method.sampler, objectives,
         inner_sub, method, grids)

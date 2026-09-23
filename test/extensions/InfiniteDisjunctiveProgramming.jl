@@ -577,6 +577,68 @@ function test_add_cut_infinite()
     @test InfiniteOpt.transformation_backend_ready(model)
 end
 
+# compute_M on a finite disjunct constraint: no supports to sample, one
+# M subproblem. Slack r(d) = 5 - d maximized over d <= 3 gives 5.
+function test_compute_M_infinite_finite_constraint()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= d <= 10)
+    @variable(model, Y[1:2], Logical)
+    @constraint(model, con, d >= 5, Disjunct(Y[1]))
+    @constraint(model, con2, d <= 3, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    mbm = DP._MBM(MBM(HiGHS.Optimizer), model)
+    sub = DP.copy_model_with_constraints(
+        model, DP.DisjunctConstraintRef[con2], mbm)
+    obj = DP.prepare_max_M_objective(
+        model, JuMP.constraint_object(con), sub)
+    @test isempty(InfiniteOpt.parameter_refs(obj))
+    @test DP.compute_M(sub, obj, mbm) == 5.0
+end
+
+# MBM with a disjunction made only of finite constraints in an
+# InfiniteModel: d = 3 and x = 1 - t, objective 3 + 1/2.
+function test_mbm_finite_disjunction()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 11)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= d <= 10)
+    @variable(model, Y[1:2], Logical)
+    @constraint(model, x >= 1 - t)
+    @constraint(model, d >= 3, Disjunct(Y[1]))
+    @constraint(model, d >= 5, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Min, d + ∫(x, t))
+    @test optimize!(model, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 3.5 atol = 1e-6
+    @test value(Y[1])
+end
+
+# MBM with finite and infinite constraints in the same disjunct:
+# d = 1 with x = 1 - t <= 2d, objective 1 + 1/2.
+function test_mbm_mixed_finite_disjunct()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 11)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, 0 <= d <= 10)
+    @variable(model, Y[1:2], Logical)
+    @constraint(model, x >= 1 - t)
+    @constraint(model, x <= d, Disjunct(Y[1]))
+    @constraint(model, d >= 3, Disjunct(Y[1]))
+    @constraint(model, x <= 2d, Disjunct(Y[2]))
+    @constraint(model, d >= 1, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Min, d + ∫(x, t))
+    @test optimize!(model, gdp_method = MBM(HiGHS.Optimizer)) isa Nothing
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+    @test value(Y[2])
+end
+
 # MBM with finite + integer variables in an InfiniteModel.
 function test_mbm_finite_and_integer_var()
     model = InfiniteGDPModel(HiGHS.Optimizer)
@@ -1193,6 +1255,9 @@ end
         test_compute_M_infinite_two_params()
         test_compute_M_infinite_dependent_params()
         test_compute_M_infinite_dependent_varying()
+        test_compute_M_infinite_finite_constraint()
+        test_mbm_finite_disjunction()
+        test_mbm_mixed_finite_disjunct()
         test_mbm_finite_and_integer_var()
         test_mbm_infinite_simple()
         test_mbm_infinite_param_dependent()
