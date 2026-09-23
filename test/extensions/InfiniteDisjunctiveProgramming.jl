@@ -577,9 +577,9 @@ function test_add_cut_infinite()
     @test InfiniteOpt.transformation_backend_ready(model)
 end
 
-# raw_M on a finite disjunct constraint: no supports to sample, one M
-# subproblem. Slack r(d) = 5 - d maximized over d <= 3 gives 5.
-function test_raw_M_infinite_finite_constraint()
+# compute_M on a finite disjunct constraint: no supports to sample, one
+# M subproblem. Slack r(d) = 5 - d maximized over d <= 3 gives 5.
+function test_compute_M_infinite_finite_constraint()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
     @variable(model, 0 <= x <= 10, Infinite(t))
@@ -594,7 +594,7 @@ function test_raw_M_infinite_finite_constraint()
     obj = DP.prepare_max_M_objective(
         model, JuMP.constraint_object(con), sub)
     @test isempty(InfiniteOpt.parameter_refs(obj))
-    @test DP.raw_M(sub, obj, mbm) == 5.0
+    @test DP.compute_M(sub, obj, mbm) == 5.0
 end
 
 # MBM with a disjunction made only of finite constraints in an
@@ -1255,6 +1255,9 @@ end
         test_compute_M_infinite_two_params()
         test_compute_M_infinite_dependent_params()
         test_compute_M_infinite_dependent_varying()
+        test_compute_M_infinite_finite_constraint()
+        test_mbm_finite_disjunction()
+        test_mbm_mixed_finite_disjunct()
         test_mbm_finite_and_integer_var()
         test_mbm_infinite_simple()
         test_mbm_infinite_param_dependent()

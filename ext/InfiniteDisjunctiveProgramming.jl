@@ -304,7 +304,7 @@ function DP.compute_M(
     inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
         Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
     if objectives isa JuMP.AbstractJuMPScalar
-        return DP.raw_M(inner_sub, objectives, method)
+        return DP.compute_M(inner_sub, objectives, method)
     end
     # transcription orders the dimensions by parameter group, which is
     # not the ascending order `parameter_refs` gives the grids below
