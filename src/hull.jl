@@ -281,6 +281,39 @@ function reformulate_disjunct_constraint(
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
+################################################################################
+#                       NONLINEAR EXPRESSION AT ZERO
+################################################################################
+
+# Value of an expression with every variable set to zero, the constant
+# f(0) of the perspective function. Checked here rather than through
+# JuMP.value(f, expr), whose leaf needs a method per variable
+# reference type, so any AbstractVariableRef works.
+_evaluate_at_zero(c::Number) = convert(Float64, c)
+_evaluate_at_zero(::JuMP.AbstractVariableRef) = 0.0
+_evaluate_at_zero(aff::JuMP.GenericAffExpr) = convert(Float64, aff.constant)
+_evaluate_at_zero(quad::JuMP.GenericQuadExpr) = _evaluate_at_zero(quad.aff)
+function _evaluate_at_zero(nlp::JuMP.GenericNonlinearExpr)
+    registry = _MOI.Nonlinear.OperatorRegistry()
+    args = Real[_evaluate_at_zero(arg) for arg in nlp.args]
+    op = nlp.head
+    if length(args) == 1 && haskey(registry.univariate_operator_to_id, op)
+        return _MOI.Nonlinear.eval_univariate_function(registry, op, args[1])
+    elseif haskey(registry.multivariate_operator_to_id, op)
+        return _MOI.Nonlinear.eval_multivariate_function(registry, op, args)
+    elseif haskey(registry.logic_operator_to_id, op)
+        return _MOI.Nonlinear.eval_logic_function(registry, op, args...)
+    elseif haskey(registry.comparison_operator_to_id, op)
+        return _MOI.Nonlinear.eval_comparison_function(registry, op, args...)
+    end
+    # operators registered on the model
+    udf = _MOI.get(JuMP.owner_model(nlp),
+        _MOI.UserDefinedFunction(op, length(args)))
+    udf === nothing && error("Unable to evaluate nonlinear operator `$op` " *
+        "because it was not added as an operator.")
+    return first(udf)(args...)
+end
+
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel, 
     con::JuMP.ScalarConstraint{T, S}, 
@@ -288,7 +321,7 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.GenericNonlinearExpr, S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
-    con_func0 = JuMP.value(v -> 0.0, con.func)
+    con_func0 = _evaluate_at_zero(con.func)
     if isinf(con_func0)
         error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
     end
@@ -307,7 +340,7 @@ function reformulate_disjunct_constraint(
     con_func = JuMP.@expression(model, [i=1:con.set.dimension],
         _disaggregate_nl_expression(model, con.func[i], bvref, method)
     )
-    con_func0 = JuMP.value.(v -> 0.0, con.func)
+    con_func0 = _evaluate_at_zero.(con.func)
     if any(isinf.(con_func0))
         error("At least of of the operators `$([func.head for func in con.func])` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
     end
@@ -338,7 +371,7 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.GenericNonlinearExpr, S <: _MOI.Interval}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
-    con_func0 = JuMP.value(v -> 0.0, con.func)
+    con_func0 = _evaluate_at_zero(con.func)
     if isinf(con_func0)
         error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
     end

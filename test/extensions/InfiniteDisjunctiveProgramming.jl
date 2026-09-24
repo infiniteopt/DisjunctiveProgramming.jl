@@ -755,6 +755,32 @@ function test_mbm_with_derivatives()
          MOI.ALMOST_LOCALLY_SOLVED]
 end
 
+# Hull on a non-quadratic nonlinear disjunct constraint of an infinite
+# variable: the perspective constant f(0) is evaluated without a
+# JuMP.value method for GeneralVariableRef. Optimum x = 0 in disjunct 1.
+function test_hull_infinite_nonlinear()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, exp(x) - 1 <= 2, Disjunct(Y[1]))
+    @constraint(model, x >= 5, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Min, ∫(x, t))
+    @test DP.reformulate_model(model, Hull()) isa Nothing
+    juniper = JuMP.optimizer_with_attributes(
+        Juniper.Optimizer,
+        "nl_solver" => JuMP.optimizer_with_attributes(
+            Ipopt.Optimizer, "print_level" => 0),
+        "log_levels" => Symbol[])
+    set_optimizer(model, juniper)
+    @test optimize!(model, gdp_method = Hull()) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+    @test objective_value(model) ≈ 0.0 atol = 1e-4
+    @test all(value(Y[1]))
+end
+
 function test_CuttingPlanes_infinite_simple()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
@@ -1203,6 +1229,7 @@ end
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()
+        test_hull_infinite_nonlinear()
     end
 
     @testset "Cutting Planes" begin
