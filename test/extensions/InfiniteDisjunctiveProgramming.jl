@@ -1209,6 +1209,94 @@ function test_add_cut_weighted_coefficients()
     end
 end
 
+# Shared variables: a variable whose infinite parameters do not contain
+# its indicator's, so one copy serves indicator supports that may pick
+# different disjuncts. Optima are by brute force over the disjunct
+# choices at each support.
+
+# finite d under Y(t): per t, d <= 2 - 2t or d <= 1 + 2t; maximize d.
+# Best choice per t is the larger bound, so d = min_t max(...) = 1.5.
+function test_shared_finite_variable()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1],
+        supports = [0.0, 0.25, 0.5, 0.75, 1.0])
+    @variable(model, 0 <= d <= 3)
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, d <= 2 - 2t, Disjunct(Y[1]))
+    @constraint(model, d <= 1 + 2t, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, d)
+
+    optimize!(model, gdp_method = BigM(10.0))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+
+    optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+
+    optimize!(model, gdp_method = Hull())
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+end
+
+# z(t) under Y(t, xi): per (t, xi), z <= 2 - xi or z <= xi; maximize
+# the sum over t of z, so z = min_xi max(2 - xi, xi) = 1 at each t.
+function test_shared_infinite_variable()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 1.0])
+    @infinite_parameter(model, xi ∈ [0, 2], supports = [0.5, 1.0, 1.5, 2.0])
+    @variable(model, 0 <= z <= 3, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t, xi))
+    @constraint(model, z <= 2 - xi, Disjunct(Y[1]))
+    @constraint(model, z <= xi, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, support_sum(z, t))
+
+    optimize!(model, gdp_method = BigM(10.0))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 2.0 atol = 1e-6
+
+    optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 2.0 atol = 1e-6
+
+    optimize!(model, gdp_method = Hull())
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 2.0 atol = 1e-6
+end
+
+# Y(t) over x(t, xi): no shared variable, the indicator only has fewer
+# parameters than the constraint. Per t, x <= t + xi (sum 3t + 1.5) or
+# x <= 1.2 at a cost of 1.5 (value 2.1): 2.1 + 3.0 + 4.5 = 9.6.
+function test_fewer_indicator_parameters()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @infinite_parameter(model, xi ∈ [0, 1], supports = [0.2, 0.5, 0.8])
+    @variable(model, 0 <= x <= 3, Infinite(t, xi))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, x <= t + xi, Disjunct(Y[1]))
+    @constraint(model, x <= 1.2, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max,
+        support_sum(support_sum(x, xi) - 1.5 * binary_variable(Y[2]), t))
+
+    optimize!(model, gdp_method = BigM(10.0))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 9.6 atol = 1e-6
+
+    optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 9.6 atol = 1e-6
+
+    optimize!(model, gdp_method = Hull())
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 9.6 atol = 1e-6
+end
+
 @testset "InfiniteDisjunctiveProgramming" begin
 
     @testset "Model" begin
@@ -1265,6 +1353,11 @@ end
         test_mbm_with_derivatives()
     end
 
+    @testset "Shared variables" begin
+        test_shared_finite_variable()
+        test_shared_infinite_variable()
+        test_fewer_indicator_parameters()
+    end
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()

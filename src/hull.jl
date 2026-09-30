@@ -32,13 +32,14 @@ function _disaggregate_variable(
     lb, ub = variable_bound_info(vref)
     info = get_variable_info(vref; has_lb = true, has_ub = true, 
                              lower_bound = lb, upper_bound = ub)
-    old_props = VariableProperties(vref)
-    properties = VariableProperties(info, "$(vref)_$(lvref)", 
-                                    old_props.set, old_props.variable_type)
-    dvref = create_variable(model, properties)
-    push!(_reformulation_variables(model), dvref)
     #get binary indicator variable
     bvref = binary_variable(lvref)
+    #the copy lives where its bound rows do, lb*bvref <= dvref <= ub*bvref
+    old_props = VariableProperties(vref)
+    properties = VariableProperties(info, "$(vref)_$(lvref)", old_props.set,
+        VariableProperties(vref + bvref).variable_type)
+    dvref = create_variable(model, properties)
+    push!(_reformulation_variables(model), dvref)
     #temp storage
     push!(method.disjunction_variables[vref], dvref)
     method.disjunct_variables[vref, bvref] = dvref

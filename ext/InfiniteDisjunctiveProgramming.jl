@@ -170,6 +170,37 @@ function DP.disaggregate_expression(
     return JuMP.@expression(model, sum(terms))
 end
 
+# Return a copy that also contains the indicator's parameters
+function _copy_over_indicator(
+    vref::InfiniteOpt.GeneralVariableRef,
+    bvref::JuMP.AbstractJuMPScalar,
+    indicator_copies::Dict
+    )
+    # parameters and variables already over the indicator's groups stay
+    _is_parameter(vref) && return vref
+    issubset(InfiniteOpt.parameter_group_int_indices(bvref),
+        InfiniteOpt.parameter_group_int_indices(vref)) && return vref
+    # one copy per variable, shared by every row and objective it is in
+    haskey(indicator_copies, vref) && return indicator_copies[vref]
+    return indicator_copies[vref] = _copy_over_indicator(
+        InfiniteOpt.dispatch_variable_ref(vref), vref, bvref,
+        indicator_copies)
+end
+# a derivative follows its argument's copy, keeping the finite differences
+function _copy_over_indicator(
+    ::InfiniteOpt.DerivativeRef, vref, bvref, indicator_copies)
+    argument = _copy_over_indicator(InfiniteOpt.derivative_argument(vref),
+        bvref, indicator_copies)
+    return InfiniteOpt.deriv(argument, InfiniteOpt.operator_parameter(vref))
+end
+# the copy keeps the bounds and spans the union of both parameter sets
+function _copy_over_indicator(::Any, vref, bvref, indicator_copies)
+    prefs = InfiniteOpt.parameter_refs(vref + bvref)
+    properties = DP.VariableProperties(DP.get_variable_info(vref), "",
+        nothing, InfiniteOpt.Infinite(prefs...))
+    return DP.create_variable(JuMP.owner_model(vref), properties)
+end
+
 ################################################################################
 #                          MBM FOR INFINITEMODEL
 ################################################################################
@@ -188,16 +219,18 @@ function DP.copy_model_with_constraints(
         model; filter_constraints = cref -> false
         )
 
+    indicator = DP._constraint_to_indicator(model)[first(constraints)]
+    bvref = ref_map[DP.binary_variable(indicator)]
+    indicator_copies = Dict{InfiniteOpt.GeneralVariableRef,
+        InfiniteOpt.GeneralVariableRef}()
     for cref in constraints
         con = JuMP.constraint_object(cref)
         T = one(JuMP.value_type(typeof(mini)))
-        JuMP.@constraint(mini, ref_map[con.func] * T in con.set)
+        func = InfiniteOpt.map_expression.(
+            v -> _copy_over_indicator(v, bvref, indicator_copies),
+            ref_map[con.func])
+        JuMP.@constraint(mini, func * T in con.set)
     end
-
-    InfiniteOpt.build_transformation_backend!(mini)
-    transcribed = InfiniteOpt.transformation_model(mini)
-    JuMP.set_optimizer(transcribed, method.optimizer)
-    JuMP.set_silent(transcribed)
 
     # fwd_map needs every ref reachable from disjunct constraints —
     # decision vars + parameters + parameter functions so the
@@ -207,7 +240,8 @@ function DP.copy_model_with_constraints(
     fwd_map = Dict{InfiniteOpt.GeneralVariableRef,
         Vector{InfiniteOpt.GeneralVariableRef}}()
     for v in decision_vars
-        fwd_map[v] = [ref_map[v]]
+        fwd_map[v] = [_copy_over_indicator(ref_map[v], bvref,
+            indicator_copies)]
     end
     for p in InfiniteOpt.all_parameters(model)
         fwd_map[p] = [ref_map[p]]
@@ -215,6 +249,11 @@ function DP.copy_model_with_constraints(
     for pf in InfiniteOpt.all_parameter_functions(model)
         fwd_map[pf] = [ref_map[pf]]
     end
+
+    InfiniteOpt.build_transformation_backend!(mini)
+    transcribed = InfiniteOpt.transformation_model(mini)
+    JuMP.set_optimizer(transcribed, method.optimizer)
+    JuMP.set_silent(transcribed)
     return DP.GDPSubmodel(mini, decision_vars, fwd_map)
 end
 
