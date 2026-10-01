@@ -1297,6 +1297,35 @@ function test_fewer_indicator_parameters()
     @test objective_value(model) ≈ 9.6 atol = 1e-6
 end
 
+# derivative of a shared z(t) under Y(t, xi): per (t, xi), dz <= 2 - xi or
+# dz <= xi, so dz = max(2 - xi, xi) = 1.5 at both xi and z(1) - z(0) = 1.5.
+function test_shared_variable_derivative()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1],
+        supports = [0.0, 0.25, 0.5, 0.75, 1.0])
+    @infinite_parameter(model, xi ∈ [0, 2], supports = [0.5, 1.5])
+    @variable(model, -5 <= z <= 5, Infinite(t))
+    @variable(model, -10 <= dz <= 10, Deriv(z, t))
+    @variable(model, Y[1:2], InfiniteLogical(t, xi))
+    @constraint(model, dz <= 2 - xi, Disjunct(Y[1]))
+    @constraint(model, dz <= xi, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, z(1) - z(0))
+
+    optimize!(model, gdp_method = BigM(100.0))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+
+    optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+
+    optimize!(model, gdp_method = Hull())
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+end
+
 @testset "InfiniteDisjunctiveProgramming" begin
 
     @testset "Model" begin
@@ -1357,6 +1386,7 @@ end
         test_shared_finite_variable()
         test_shared_infinite_variable()
         test_fewer_indicator_parameters()
+        test_shared_variable_derivative()
     end
     @testset "Integration" begin
         test_infiniteopt_extension()
