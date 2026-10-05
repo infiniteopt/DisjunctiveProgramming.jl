@@ -615,6 +615,10 @@ function test_mbm_finite_disjunction()
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 3.5 atol = 1e-6
     @test value(Y[1])
+    # d >= 5 relaxed by M = 5 - 3 when Y[1] holds
+    ref_cons = constraint_object.(DP._reformulation_constraints(model))
+    @test ref_cons[2].func == d + 2 * binary_variable(Y[1])
+    @test ref_cons[2].set == MOI.GreaterThan(5.0)
 end
 
 # MBM with finite and infinite constraints in the same disjunct:
@@ -637,6 +641,10 @@ function test_mbm_mixed_finite_disjunct()
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 1.5 atol = 1e-6
     @test value(Y[2])
+    # d >= 3 relaxed by M = 3 - 1 when Y[2] holds
+    ref_cons = constraint_object.(DP._reformulation_constraints(model))
+    @test ref_cons[2].func == d + 2 * binary_variable(Y[2])
+    @test ref_cons[2].set == MOI.GreaterThan(3.0)
 end
 
 # MBM with finite + integer variables in an InfiniteModel.
@@ -1235,10 +1243,17 @@ function test_shared_finite_variable()
     optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 1.5 atol = 1e-6
+    # M = 4t - 1 and 1 - 4t
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test value(M_funcs[1]) ≈ [0, 1, 2, 3, 3]
+    @test value(M_funcs[2]) ≈ [1, 0, 0, 0, 0]
 
     optimize!(model, gdp_method = Hull())
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 1.5 atol = 1e-6
+    # the disaggregated copies are over the indicator's parameters
+    dvrefs = DP._reformulation_variables(model)
+    @test InfiniteOpt.parameter_refs.(dvrefs) == [(t,), (t,)]
 end
 
 # z(t) under Y(t, xi): per (t, xi), z <= 2 - xi or z <= xi; maximize
@@ -1262,10 +1277,17 @@ function test_shared_infinite_variable()
     optimize!(model, gdp_method = MBM(HiGHS.Optimizer))
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 2.0 atol = 1e-6
+    # M = 2xi - 2 and 2 - 2xi at both t
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test value(M_funcs[1]) ≈ [0 1 2 2; 0 1 2 2]
+    @test value(M_funcs[2]) ≈ [1 0 0 0; 1 0 0 0]
 
     optimize!(model, gdp_method = Hull())
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 2.0 atol = 1e-6
+    # the disaggregated copies are over the indicator's parameters
+    dvrefs = DP._reformulation_variables(model)
+    @test InfiniteOpt.parameter_refs.(dvrefs) == [(t, xi), (t, xi)]
 end
 
 # Y(t) over x(t, xi): no shared variable, the indicator only has fewer
@@ -1295,6 +1317,9 @@ function test_fewer_indicator_parameters()
     optimize!(model, gdp_method = Hull())
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 9.6 atol = 1e-6
+    # the disaggregated copies are over the indicator's parameters
+    dvrefs = DP._reformulation_variables(model)
+    @test InfiniteOpt.parameter_refs.(dvrefs) == [(t, xi), (t, xi)]
 end
 
 # derivative of a shared z(t) under Y(t, xi): per (t, xi), dz <= 2 - xi or
@@ -1324,6 +1349,9 @@ function test_shared_variable_derivative()
     optimize!(model, gdp_method = Hull())
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 1.5 atol = 1e-6
+    # the disaggregated copies are over the indicator's parameters
+    dvrefs = DP._reformulation_variables(model)
+    @test InfiniteOpt.parameter_refs.(dvrefs) == [(t, xi), (t, xi)]
 end
 
 @testset "InfiniteDisjunctiveProgramming" begin

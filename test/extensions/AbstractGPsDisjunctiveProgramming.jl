@@ -316,6 +316,10 @@ function test_gp_shared_finite_variable()
     optimize!(model, gdp_method = method)
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 1.5 atol = 1e-6
+    # no smaller than the exact M = max(4t - 1, 0) and max(1 - 4t, 0)
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test all(value(M_funcs[1]) .>= [0, 0, 1, 2, 3] .- 1e-6)
+    @test all(value(M_funcs[2]) .>= [1, 0, 0, 0, 0] .- 1e-6)
 end
 
 # z(t) under Y(t, xi): z = min_xi max(2 - xi, xi) = 1 at each of two t
@@ -334,6 +338,10 @@ function test_gp_shared_infinite_variable()
     optimize!(model, gdp_method = method)
     @test termination_status(model) == MOI.OPTIMAL
     @test objective_value(model) ≈ 2.0 atol = 1e-6
+    # no smaller than the exact M = max(2xi - 2, 0) and max(2 - 2xi, 0)
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test all(value(M_funcs[1]) .>= [0 0 1 2; 0 0 1 2] .- 1e-6)
+    @test all(value(M_funcs[2]) .>= [1 0 0 0; 1 0 0 0] .- 1e-6)
 end
 
 @testset "AbstractGPsDisjunctiveProgramming" begin
