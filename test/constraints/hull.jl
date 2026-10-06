@@ -426,20 +426,20 @@ function test_evaluate_at_zero()
     model = GDPModel()
     @variable(model, 1 <= x <= 10)
     @variable(model, 1 <= y <= 10)
-    @test DP._evaluate_at_zero(3) === 3.0
-    @test DP._evaluate_at_zero(x) === 0.0
-    @test DP._evaluate_at_zero(2x + 1.5) === 1.5
-    @test DP._evaluate_at_zero(x * y + 2x + 1.5) === 1.5
-    @test DP._evaluate_at_zero(exp(x) - 1) === 0.0
-    @test DP._evaluate_at_zero(log(x + 1) * (y + 2)) === 0.0
-    @test DP._evaluate_at_zero((x - 1)^2 / (y + 4)) === 0.25
+    @test evaluate_at_zero(3) === 3.0
+    @test evaluate_at_zero(x) === 0.0
+    @test evaluate_at_zero(2x + 1.5) === 1.5
+    @test evaluate_at_zero(x * y + 2x + 1.5) === 1.5
+    @test evaluate_at_zero(exp(x) - 1) === 0.0
+    @test evaluate_at_zero(log(x + 1) * (y + 2)) === 0.0
+    @test evaluate_at_zero((x - 1)^2 / (y + 4)) === 0.25
     branch = NonlinearExpr(:ifelse,
         Any[NonlinearExpr(:>=, Any[x, 1]), x, y + 3])
-    @test DP._evaluate_at_zero(branch) === 3.0
-    @test DP._evaluate_at_zero(log(x)) == -Inf
+    @test evaluate_at_zero(branch) === 3.0
+    @test evaluate_at_zero(log(x)) == -Inf
     @operator(model, op_f, 1, v -> v^2 + 7)
-    @test DP._evaluate_at_zero(op_f(x)) === 7.0
-    @test_throws ErrorException DP._evaluate_at_zero(
+    @test evaluate_at_zero(op_f(x)) === 7.0
+    @test_throws ErrorException evaluate_at_zero(
         NonlinearExpr(:op_missing, Any[x]))
 end
 

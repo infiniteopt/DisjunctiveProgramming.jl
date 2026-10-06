@@ -755,6 +755,27 @@ function test_mbm_with_derivatives()
          MOI.ALMOST_LOCALLY_SOLVED]
 end
 
+# evaluate_at_zero on each kind of InfiniteOpt reference
+function test_evaluate_at_zero_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 3)
+    @variable(model, x, Infinite(t))
+    @variable(model, z)
+    @finite_parameter(model, p == 2.0)
+    @parameter_function(model, pf == t -> 2 * t)
+    @test evaluate_at_zero(x) === 0.0
+    @test evaluate_at_zero(z) === 0.0
+    @test evaluate_at_zero(deriv(x, t)) === 0.0
+    @test evaluate_at_zero(x(0.5)) === 0.0
+    @test evaluate_at_zero(p) === 2.0
+    @test evaluate_at_zero(exp(x) - 1 + p * z) === 0.0
+    @test evaluate_at_zero(log(x + p) * (z + 1)) ≈ log(2.0)
+    @test_throws ErrorException evaluate_at_zero(t)
+    @test_throws ErrorException evaluate_at_zero(pf)
+    @test_throws ErrorException evaluate_at_zero(exp(x) - t)
+    @test_throws ErrorException evaluate_at_zero(∫(x, t))
+end
+
 # Hull on a non-quadratic nonlinear disjunct constraint of an infinite
 # variable: the perspective constant f(0) is evaluated without a
 # JuMP.value method for GeneralVariableRef. Optimum x = 0 in disjunct 1.
@@ -1229,6 +1250,7 @@ end
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()
+        test_evaluate_at_zero_infinite()
         test_hull_infinite_nonlinear()
     end
 
