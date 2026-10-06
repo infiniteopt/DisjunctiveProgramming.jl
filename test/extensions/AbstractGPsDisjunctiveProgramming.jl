@@ -297,6 +297,53 @@ function test_gp_unknown_sampler_error()
             sampler = _UnimplementedSampler()))
 end
 
+# MBM-GP on shared variables (see the InfiniteOpt extension tests), with
+# every support solved so the result is exact
+
+# finite d under Y(t): d = min_t max(2 - 2t, 1 + 2t) = 1.5
+function test_gp_shared_finite_variable()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1],
+        supports = [0.0, 0.25, 0.5, 0.75, 1.0])
+    @variable(model, 0 <= d <= 3)
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, d <= 2 - 2t, Disjunct(Y[1]))
+    @constraint(model, d <= 1 + 2t, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, d)
+    method = MBM(HiGHS.Optimizer; sampler = GPSampler(frac_supports = 1.0))
+    optimize!(model, gdp_method = method)
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 1.5 atol = 1e-6
+    # no smaller than the exact M = max(4t - 1, 0) and max(1 - 4t, 0)
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test all(value(M_funcs[1]) .>= [0, 0, 1, 2, 3] .- 1e-6)
+    @test all(value(M_funcs[2]) .>= [1, 0, 0, 0, 0] .- 1e-6)
+end
+
+# z(t) under Y(t, xi): z = min_xi max(2 - xi, xi) = 1 at each of two t
+function test_gp_shared_infinite_variable()
+    model = InfiniteGDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 1.0])
+    @infinite_parameter(model, xi ∈ [0, 2], supports = [0.5, 1.0, 1.5, 2.0])
+    @variable(model, 0 <= z <= 3, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t, xi))
+    @constraint(model, z <= 2 - xi, Disjunct(Y[1]))
+    @constraint(model, z <= xi, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, support_sum(z, t))
+    method = MBM(HiGHS.Optimizer; sampler = GPSampler(frac_supports = 1.0))
+    optimize!(model, gdp_method = method)
+    @test termination_status(model) == MOI.OPTIMAL
+    @test objective_value(model) ≈ 2.0 atol = 1e-6
+    # no smaller than the exact M = max(2xi - 2, 0) and max(2 - 2xi, 0)
+    M_funcs = InfiniteOpt.all_parameter_functions(model)
+    @test all(value(M_funcs[1]) .>= [0 0 1 2; 0 0 1 2] .- 1e-6)
+    @test all(value(M_funcs[2]) .>= [1 0 0 0; 1 0 0 0] .- 1e-6)
+end
+
 @testset "AbstractGPsDisjunctiveProgramming" begin
     test_gp_sampler_kwargs()
     test_gp_compute_M_scalar()
@@ -309,4 +356,6 @@ end
     test_gp_detect_uniform_M_off_dependent()
     test_gp_unknown_sampler_error()
     test_gp_infeasible_disjunct()
+    test_gp_shared_finite_variable()
+    test_gp_shared_infinite_variable()
 end
