@@ -1,3 +1,5 @@
 [deps]
 DisjunctiveProgramming = "0d27d021-0159-4c7d-b4a7-9ccb5d9366cf"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+InfiniteOpt = "20393b10-9daf-11e9-18c9-8db751c92c57"
