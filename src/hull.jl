@@ -286,18 +286,22 @@ end
 ################################################################################
 
 """
-    evaluate_at_zero(expr::Union{Number, JuMP.AbstractJuMPScalar})::Float64
+    evaluate_at_zero(
+        expr::Union{Number, JuMP.AbstractJuMPScalar}
+        )::Union{Float64, JuMP.AbstractJuMPScalar}
 
-Return the value of `expr` with every decision variable set to zero, the
-constant \$f(0)\$ of the perspective function in the hull reformulation
-of a nonlinear disjunct constraint. Expressions are evaluated by
+Return `expr` with every decision variable set to zero, the constant
+\$f(0)\$ of the perspective function in the hull reformulation of a
+nonlinear disjunct constraint. Expressions are evaluated by
 `JuMP.value(evaluate_at_zero, expr)`, so every variable leaf comes back
 through this function. Extensions with their own
 `JuMP.AbstractVariableRef` subtype add a method for it, since what
-"zero" means depends on the reference kind (for instance, an infinite
-parameter is not a decision variable). JuMP's nonlinear walk only
-evaluates its own variable type, so they also add a method for
-nonlinear expressions over their subtype.
+"zero" means depends on the reference kind, and a method for nonlinear
+expressions over their subtype, since JuMP's nonlinear walk only
+evaluates its own variable type. An extension may return an expression
+in quantities that are not decision variables, such as infinite
+parameters; it is then substituted into the perspective constraint
+as is.
 """
 evaluate_at_zero(c::Number) = convert(Float64, c)
 evaluate_at_zero(::JuMP.GenericVariableRef) = 0.0
@@ -312,7 +316,7 @@ function reformulate_disjunct_constraint(
 ) where {T <: JuMP.GenericNonlinearExpr, S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
     con_func0 = evaluate_at_zero(con.func)
-    if isinf(con_func0)
+    if con_func0 isa Number && isinf(con_func0)
         error("Cannot apply Hull to the nonlinear disjunct constraint on " *
             "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
             "perspective constant f(0) is not finite (for example " *
@@ -335,8 +339,8 @@ function reformulate_disjunct_constraint(
         _disaggregate_nl_expression(model, con.func[i], bvref, method)
     )
     con_func0 = evaluate_at_zero.(con.func)
-    if any(isinf, con_func0)
-        rows = findall(isinf, con_func0)
+    rows = findall(v -> v isa Number && isinf(v), con_func0)
+    if !isempty(rows)
         error("Cannot apply Hull to the vector disjunct constraint on " *
             "`$(con.func)`: rows $(rows) evaluate to $(con_func0[rows]) " *
             "at zero, so the perspective constant f(0) is not finite (for " *
@@ -371,7 +375,7 @@ function reformulate_disjunct_constraint(
 ) where {T <: JuMP.GenericNonlinearExpr, S <: _MOI.Interval}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
     con_func0 = evaluate_at_zero(con.func)
-    if isinf(con_func0)
+    if con_func0 isa Number && isinf(con_func0)
         error("Cannot apply Hull to the nonlinear disjunct constraint on " *
             "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
             "perspective constant f(0) is not finite (for example " *

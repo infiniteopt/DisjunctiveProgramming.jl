@@ -38,26 +38,30 @@ function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
     return !_is_parameter(vref)
 end
 
-# Value of a reference with every decision variable at zero
-const _zero_at_zero = Union{InfiniteOpt.InfiniteVariableRef,
-    InfiniteOpt.SemiInfiniteVariableRef, InfiniteOpt.PointVariableRef,
-    InfiniteOpt.FiniteVariableRef, InfiniteOpt.DerivativeRef}
+# Value of a reference with every decision variable at zero. Infinite
+# parameters and parameter functions stay symbolic, so transcription
+# evaluates the perspective constant f(0) at each support.
 DP.evaluate_at_zero(vref::InfiniteOpt.GeneralVariableRef) =
-    _evaluate_at_zero(InfiniteOpt.dispatch_variable_ref(vref))
-_evaluate_at_zero(::_zero_at_zero) = 0.0
-_evaluate_at_zero(pref::InfiniteOpt.FiniteParameterRef) =
+    _evaluate_at_zero(vref, InfiniteOpt.dispatch_variable_ref(vref))
+_evaluate_at_zero(vref, ::InfiniteOpt.DecisionVariableRef) = 0.0
+_evaluate_at_zero(vref, pref::InfiniteOpt.FiniteParameterRef) =
     convert(Float64, JuMP.parameter_value(pref))
-function _evaluate_at_zero(ref::InfiniteOpt.DispatchVariableRef)
+_evaluate_at_zero(vref, ::Union{InfiniteOpt.IndependentParameterRef,
+    InfiniteOpt.DependentParameterRef, InfiniteOpt.ParameterFunctionRef}) =
+    vref
+function _evaluate_at_zero(vref, ::InfiniteOpt.MeasureRef)
     error("Hull cannot reformulate a nonlinear disjunct constraint " *
-        "containing `$ref` of type $(typeof(ref)): the function does not " *
-        "reduce to a number when the decision variables are zero. Use " *
-        "BigM or MBM for this constraint.")
+        "containing the measure `$vref`: its argument cannot be " *
+        "evaluated with the decision variables at zero. Use BigM or " *
+        "MBM for this constraint.")
 end
-
+# Replace every reference by its value at zero; the result is a number
+# unless infinite parameters remain, then it is an expression in them
 function DP.evaluate_at_zero(
     expr::JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
     )
     expr = InfiniteOpt.map_expression(DP.evaluate_at_zero, expr)
+    isempty(InfiniteOpt.parameter_refs(expr)) || return expr
     return JuMP.value(DP.evaluate_at_zero, expr)
 end
 
