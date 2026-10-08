@@ -295,8 +295,9 @@ of a nonlinear disjunct constraint. Expressions are evaluated by
 through this function. Extensions with their own
 `JuMP.AbstractVariableRef` subtype add a method for it, since what
 "zero" means depends on the reference kind (for instance, an infinite
-parameter is not a decision variable), and make sure
-`JuMP.value(::Function, ::TheirRef)` exists so the walk reaches it.
+parameter is not a decision variable). JuMP's nonlinear walk only
+evaluates its own variable type, so they also add a method for
+nonlinear expressions over their subtype.
 """
 evaluate_at_zero(c::Number) = convert(Float64, c)
 evaluate_at_zero(::JuMP.GenericVariableRef) = 0.0
