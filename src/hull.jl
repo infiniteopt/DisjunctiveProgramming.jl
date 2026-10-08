@@ -312,7 +312,11 @@ function reformulate_disjunct_constraint(
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
     con_func0 = evaluate_at_zero(con.func)
     if isinf(con_func0)
-        error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+        error("Cannot apply Hull to the nonlinear disjunct constraint on " *
+            "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
+            "perspective constant f(0) is not finite (for example " *
+            "`log(x)` or `1/x`). Shift the variables so the function is " *
+            "finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     set_value = _set_value(con.set)
@@ -330,8 +334,13 @@ function reformulate_disjunct_constraint(
         _disaggregate_nl_expression(model, con.func[i], bvref, method)
     )
     con_func0 = evaluate_at_zero.(con.func)
-    if any(isinf.(con_func0))
-        error("At least of of the operators `$([func.head for func in con.func])` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+    if any(isinf, con_func0)
+        rows = findall(isinf, con_func0)
+        error("Cannot apply Hull to the vector disjunct constraint on " *
+            "`$(con.func)`: rows $(rows) evaluate to $(con_func0[rows]) " *
+            "at zero, so the perspective constant f(0) is not finite (for " *
+            "example `log(x)` or `1/x`). Shift the variables so the " *
+            "function is finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     new_func = JuMP.@expression(model, [i=1:con.set.dimension], 
@@ -362,7 +371,11 @@ function reformulate_disjunct_constraint(
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
     con_func0 = evaluate_at_zero(con.func)
     if isinf(con_func0)
-        error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+        error("Cannot apply Hull to the nonlinear disjunct constraint on " *
+            "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
+            "perspective constant f(0) is not finite (for example " *
+            "`log(x)` or `1/x`). Shift the variables so the function is " *
+            "finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     new_func = JuMP.@expression(model, ((1-ϵ)*bvref+ϵ) * con_func - ϵ*(1-bvref)*con_func0)

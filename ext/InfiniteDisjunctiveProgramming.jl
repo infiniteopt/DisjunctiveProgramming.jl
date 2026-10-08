@@ -44,18 +44,17 @@ const _zero_at_zero = Union{InfiniteOpt.InfiniteVariableRef,
     InfiniteOpt.FiniteVariableRef, InfiniteOpt.DerivativeRef}
 DP.evaluate_at_zero(vref::InfiniteOpt.GeneralVariableRef) =
     _evaluate_at_zero(InfiniteOpt.dispatch_variable_ref(vref))
-# JuMP's expression walk hands each leaf to `JuMP.value(f, leaf)`, which
-# JuMP only defines for its own variable type; InfiniteOpt does not add
-# it, so it is supplied here (skipped should InfiniteOpt ever define it).
-if !hasmethod(JuMP.value, Tuple{Function, InfiniteOpt.GeneralVariableRef})
-    JuMP.value(f::Function, vref::InfiniteOpt.GeneralVariableRef) = f(vref)
-end
+# JuMP's nonlinear walk evaluates each leaf with `JuMP.value(f, leaf)`,
+# which JuMP only defines for its own variable type
+JuMP.value(f::Function, vref::InfiniteOpt.GeneralVariableRef) = f(vref)
 _evaluate_at_zero(::_zero_at_zero) = 0.0
 _evaluate_at_zero(pref::InfiniteOpt.FiniteParameterRef) =
     convert(Float64, JuMP.parameter_value(pref))
 function _evaluate_at_zero(ref::InfiniteOpt.DispatchVariableRef)
-    error("Cannot evaluate `$ref` at zero: the hull perspective " *
-        "constant of a nonlinear disjunct constraint would depend on it.")
+    error("Hull cannot reformulate a nonlinear disjunct constraint " *
+        "containing `$ref` of type $(typeof(ref)): the function does not " *
+        "reduce to a number when the decision variables are zero. Use " *
+        "BigM or MBM for this constraint.")
 end
 
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
