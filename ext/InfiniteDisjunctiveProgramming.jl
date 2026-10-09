@@ -38,6 +38,33 @@ function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
     return !_is_parameter(vref)
 end
 
+# Value of a reference with every decision variable at zero. Infinite
+# parameters and parameter functions stay symbolic, so transcription
+# evaluates the perspective constant f(0) at each support.
+DP.evaluate_at_zero(vref::InfiniteOpt.GeneralVariableRef) =
+    _evaluate_at_zero(vref, InfiniteOpt.dispatch_variable_ref(vref))
+_evaluate_at_zero(vref, ::InfiniteOpt.DecisionVariableRef) = 0.0
+_evaluate_at_zero(vref, pref::InfiniteOpt.FiniteParameterRef) =
+    convert(Float64, JuMP.parameter_value(pref))
+_evaluate_at_zero(vref, ::Union{InfiniteOpt.IndependentParameterRef,
+    InfiniteOpt.DependentParameterRef, InfiniteOpt.ParameterFunctionRef}) =
+    vref
+function _evaluate_at_zero(vref, ::InfiniteOpt.MeasureRef)
+    error("Hull cannot reformulate a nonlinear disjunct constraint " *
+        "containing the measure `$vref`: its argument cannot be " *
+        "evaluated with the decision variables at zero. Use BigM or " *
+        "MBM for this constraint.")
+end
+# Replace every reference by its value at zero; the result is a number
+# unless infinite parameters remain, then it is an expression in them
+function DP.evaluate_at_zero(
+    expr::JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
+    )
+    expr = InfiniteOpt.map_expression(DP.evaluate_at_zero, expr)
+    isempty(InfiniteOpt.parameter_refs(expr)) || return expr
+    return JuMP.value(DP.evaluate_at_zero, expr)
+end
+
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
     info = DP.get_variable_info(vref)
     name = JuMP.name(vref)

@@ -825,6 +825,79 @@ function test_mbm_with_derivatives()
          MOI.ALMOST_LOCALLY_SOLVED]
 end
 
+# evaluate_at_zero on each kind of InfiniteOpt reference
+function test_evaluate_at_zero_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 3)
+    @variable(model, x, Infinite(t))
+    @variable(model, z)
+    @finite_parameter(model, p == 2.0)
+    @parameter_function(model, pf == t -> 2 * t)
+    @test evaluate_at_zero(x) === 0.0
+    @test evaluate_at_zero(z) === 0.0
+    @test evaluate_at_zero(deriv(x, t)) === 0.0
+    @test evaluate_at_zero(x(0.5)) === 0.0
+    @test evaluate_at_zero(p) === 2.0
+    @test evaluate_at_zero(exp(x) - 1 + p * z) === 0.0
+    @test evaluate_at_zero(log(x + p) * (z + 1)) ≈ log(2.0)
+    @test evaluate_at_zero(t) === t
+    @test evaluate_at_zero(pf) === pf
+    f0 = evaluate_at_zero(exp(x) - t)
+    @test f0 isa JuMP.GenericNonlinearExpr && parameter_refs(f0) == (t,)
+    @test_throws ErrorException evaluate_at_zero(∫(x, t))
+end
+
+# Hull on a non-quadratic nonlinear disjunct constraint of an infinite
+# variable: the perspective constant f(0) is evaluated without a
+# JuMP.value method for GeneralVariableRef. Optimum x = 0 in disjunct 1.
+function test_hull_infinite_nonlinear()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, exp(x) - 1 <= 2, Disjunct(Y[1]))
+    @constraint(model, x >= 5, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Min, ∫(x, t))
+    @test DP.reformulate_model(model, Hull()) isa Nothing
+    juniper = JuMP.optimizer_with_attributes(
+        Juniper.Optimizer,
+        "nl_solver" => JuMP.optimizer_with_attributes(
+            Ipopt.Optimizer, "print_level" => 0),
+        "log_levels" => Symbol[])
+    set_optimizer(model, juniper)
+    @test optimize!(model, gdp_method = Hull()) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+    @test objective_value(model) ≈ 0.0 atol = 1e-4
+    @test all(value(Y[1]))
+end
+
+# Hull on a nonlinear disjunct constraint that depends on the infinite
+# parameter: f(0) = -t is an expression, substituted per support by the
+# transcription. Only disjunct 1 is feasible, so x(t) = log(1 + t).
+function test_hull_infinite_nonlinear_parameter()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], num_supports = 5)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @constraint(model, exp(x) - 1 <= t, Disjunct(Y[1]))
+    @constraint(model, x <= -1, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @objective(model, Max, ∫(x, t))
+    juniper = JuMP.optimizer_with_attributes(
+        Juniper.Optimizer,
+        "nl_solver" => JuMP.optimizer_with_attributes(
+            Ipopt.Optimizer, "print_level" => 0),
+        "log_levels" => Symbol[])
+    set_optimizer(model, juniper)
+    @test optimize!(model, gdp_method = Hull()) isa Nothing
+    @test termination_status(model) in
+        [MOI.OPTIMAL, MOI.LOCALLY_SOLVED]
+    @test value(x) ≈ log.(1 .+ supports(t)) atol = 1e-4
+    @test all(value(Y[1]))
+end
+
 function test_CuttingPlanes_infinite_simple()
     model = InfiniteGDPModel(HiGHS.Optimizer)
     set_silent(model)
@@ -1419,6 +1492,9 @@ end
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()
+        test_evaluate_at_zero_infinite()
+        test_hull_infinite_nonlinear()
+        test_hull_infinite_nonlinear_parameter()
     end
 
     @testset "Cutting Planes" begin

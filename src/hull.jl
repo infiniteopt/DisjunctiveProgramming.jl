@@ -282,6 +282,33 @@ function reformulate_disjunct_constraint(
     reform_con = JuMP.build_constraint(error, new_func, con.set)
     return [reform_con]
 end
+################################################################################
+#                       NONLINEAR EXPRESSION AT ZERO
+################################################################################
+
+"""
+    evaluate_at_zero(
+        expr::Union{Number, JuMP.AbstractJuMPScalar}
+        )::Union{Float64, JuMP.AbstractJuMPScalar}
+
+Return `expr` with every decision variable set to zero, the constant
+\$f(0)\$ of the perspective function in the hull reformulation of a
+nonlinear disjunct constraint. Expressions are evaluated by
+`JuMP.value(evaluate_at_zero, expr)`, so every variable leaf comes back
+through this function. Extensions with their own
+`JuMP.AbstractVariableRef` subtype add a method for it, since what
+"zero" means depends on the reference kind, and a method for nonlinear
+expressions over their subtype, since JuMP's nonlinear walk only
+evaluates its own variable type. An extension may return an expression
+in quantities that are not decision variables, such as infinite
+parameters; it is then substituted into the perspective constraint
+as is.
+"""
+evaluate_at_zero(c::Number) = convert(Float64, c)
+evaluate_at_zero(::JuMP.GenericVariableRef) = 0.0
+evaluate_at_zero(expr::JuMP.AbstractJuMPScalar) =
+    JuMP.value(evaluate_at_zero, expr)
+
 function reformulate_disjunct_constraint(
     model::JuMP.AbstractModel, 
     con::JuMP.ScalarConstraint{T, S}, 
@@ -289,9 +316,13 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.GenericNonlinearExpr, S <: Union{_MOI.LessThan, _MOI.GreaterThan, _MOI.EqualTo}}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
-    con_func0 = JuMP.value(v -> 0.0, con.func)
-    if isinf(con_func0)
-        error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+    con_func0 = evaluate_at_zero(con.func)
+    if con_func0 isa Number && isinf(con_func0)
+        error("Cannot apply Hull to the nonlinear disjunct constraint on " *
+            "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
+            "perspective constant f(0) is not finite (for example " *
+            "`log(x)` or `1/x`). Shift the variables so the function is " *
+            "finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     set_value = _set_value(con.set)
@@ -308,9 +339,14 @@ function reformulate_disjunct_constraint(
     con_func = JuMP.@expression(model, [i=1:con.set.dimension],
         _disaggregate_nl_expression(model, con.func[i], bvref, method)
     )
-    con_func0 = JuMP.value.(v -> 0.0, con.func)
-    if any(isinf.(con_func0))
-        error("At least of of the operators `$([func.head for func in con.func])` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+    con_func0 = evaluate_at_zero.(con.func)
+    rows = findall(v -> v isa Number && isinf(v), con_func0)
+    if !isempty(rows)
+        error("Cannot apply Hull to the vector disjunct constraint on " *
+            "`$(con.func)`: rows $(rows) evaluate to $(con_func0[rows]) " *
+            "at zero, so the perspective constant f(0) is not finite (for " *
+            "example `log(x)` or `1/x`). Shift the variables so the " *
+            "function is finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     new_func = JuMP.@expression(model, [i=1:con.set.dimension], 
@@ -339,9 +375,13 @@ function reformulate_disjunct_constraint(
     method::_Hull
 ) where {T <: JuMP.GenericNonlinearExpr, S <: _MOI.Interval}
     con_func = _disaggregate_nl_expression(model, con.func, bvref, method)
-    con_func0 = JuMP.value(v -> 0.0, con.func)
-    if isinf(con_func0)
-        error("Operator `$(con.func.head)` is not defined at 0, causing the perspective function on the Hull reformulation to fail.")
+    con_func0 = evaluate_at_zero(con.func)
+    if con_func0 isa Number && isinf(con_func0)
+        error("Cannot apply Hull to the nonlinear disjunct constraint on " *
+            "`$(con.func)`: it evaluates to $(con_func0) at zero, so the " *
+            "perspective constant f(0) is not finite (for example " *
+            "`log(x)` or `1/x`). Shift the variables so the function is " *
+            "finite at zero, or use BigM or MBM.")
     end
     ϵ = method.value
     new_func = JuMP.@expression(model, ((1-ϵ)*bvref+ϵ) * con_func - ϵ*(1-bvref)*con_func0)
