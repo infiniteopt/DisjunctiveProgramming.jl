@@ -38,6 +38,33 @@ function DP.requires_disaggregation(vref::InfiniteOpt.GeneralVariableRef)
     return !_is_parameter(vref)
 end
 
+# Value of a reference with every decision variable at zero. Infinite
+# parameters and parameter functions stay symbolic, so transcription
+# evaluates the perspective constant f(0) at each support.
+DP.evaluate_at_zero(vref::InfiniteOpt.GeneralVariableRef) =
+    _evaluate_at_zero(vref, InfiniteOpt.dispatch_variable_ref(vref))
+_evaluate_at_zero(vref, ::InfiniteOpt.DecisionVariableRef) = 0.0
+_evaluate_at_zero(vref, pref::InfiniteOpt.FiniteParameterRef) =
+    convert(Float64, JuMP.parameter_value(pref))
+_evaluate_at_zero(vref, ::Union{InfiniteOpt.IndependentParameterRef,
+    InfiniteOpt.DependentParameterRef, InfiniteOpt.ParameterFunctionRef}) =
+    vref
+function _evaluate_at_zero(vref, ::InfiniteOpt.MeasureRef)
+    error("Hull cannot reformulate a nonlinear disjunct constraint " *
+        "containing the measure `$vref`: its argument cannot be " *
+        "evaluated with the decision variables at zero. Use BigM or " *
+        "MBM for this constraint.")
+end
+# Replace every reference by its value at zero; the result is a number
+# unless infinite parameters remain, then it is an expression in them
+function DP.evaluate_at_zero(
+    expr::JuMP.GenericNonlinearExpr{InfiniteOpt.GeneralVariableRef}
+    )
+    expr = InfiniteOpt.map_expression(DP.evaluate_at_zero, expr)
+    isempty(InfiniteOpt.parameter_refs(expr)) || return expr
+    return JuMP.value(DP.evaluate_at_zero, expr)
+end
+
 function DP.VariableProperties(vref::InfiniteOpt.GeneralVariableRef)
     info = DP.get_variable_info(vref)
     name = JuMP.name(vref)
@@ -186,6 +213,37 @@ function DP.disaggregate_expression(
     return JuMP.@expression(model, sum(terms))
 end
 
+# Return a copy that also contains the indicator's parameters
+function _copy_over_indicator(
+    vref::InfiniteOpt.GeneralVariableRef,
+    bvref::JuMP.AbstractJuMPScalar,
+    indicator_copies::Dict
+    )
+    # parameters and variables already over the indicator's groups stay
+    _is_parameter(vref) && return vref
+    issubset(InfiniteOpt.parameter_group_int_indices(bvref),
+        InfiniteOpt.parameter_group_int_indices(vref)) && return vref
+    # one copy per variable, shared by every row and objective it is in
+    haskey(indicator_copies, vref) && return indicator_copies[vref]
+    return indicator_copies[vref] = _copy_over_indicator(
+        InfiniteOpt.dispatch_variable_ref(vref), vref, bvref,
+        indicator_copies)
+end
+# a derivative follows its argument's copy, keeping the finite differences
+function _copy_over_indicator(
+    ::InfiniteOpt.DerivativeRef, vref, bvref, indicator_copies)
+    argument = _copy_over_indicator(InfiniteOpt.derivative_argument(vref),
+        bvref, indicator_copies)
+    return InfiniteOpt.deriv(argument, InfiniteOpt.operator_parameter(vref))
+end
+# the copy keeps the bounds and spans the union of both parameter sets
+function _copy_over_indicator(::Any, vref, bvref, indicator_copies)
+    prefs = InfiniteOpt.parameter_refs(vref + bvref)
+    properties = DP.VariableProperties(DP.get_variable_info(vref), "",
+        nothing, InfiniteOpt.Infinite(prefs...))
+    return DP.create_variable(JuMP.owner_model(vref), properties)
+end
+
 ################################################################################
 #                          MBM FOR INFINITEMODEL
 ################################################################################
@@ -204,16 +262,18 @@ function DP.copy_model_with_constraints(
         model; filter_constraints = cref -> false
         )
 
+    indicator = DP._constraint_to_indicator(model)[first(constraints)]
+    bvref = ref_map[DP.binary_variable(indicator)]
+    indicator_copies = Dict{InfiniteOpt.GeneralVariableRef,
+        InfiniteOpt.GeneralVariableRef}()
     for cref in constraints
         con = JuMP.constraint_object(cref)
         T = one(JuMP.value_type(typeof(mini)))
-        JuMP.@constraint(mini, ref_map[con.func] * T in con.set)
+        func = InfiniteOpt.map_expression.(
+            v -> _copy_over_indicator(v, bvref, indicator_copies),
+            ref_map[con.func])
+        JuMP.@constraint(mini, func * T in con.set)
     end
-
-    InfiniteOpt.build_transformation_backend!(mini)
-    transcribed = InfiniteOpt.transformation_model(mini)
-    JuMP.set_optimizer(transcribed, method.optimizer)
-    JuMP.set_silent(transcribed)
 
     # fwd_map needs every ref reachable from disjunct constraints —
     # decision vars + parameters + parameter functions so the
@@ -223,7 +283,8 @@ function DP.copy_model_with_constraints(
     fwd_map = Dict{InfiniteOpt.GeneralVariableRef,
         Vector{InfiniteOpt.GeneralVariableRef}}()
     for v in decision_vars
-        fwd_map[v] = [ref_map[v]]
+        fwd_map[v] = [_copy_over_indicator(ref_map[v], bvref,
+            indicator_copies)]
     end
     for p in InfiniteOpt.all_parameters(model)
         fwd_map[p] = [ref_map[p]]
@@ -231,6 +292,11 @@ function DP.copy_model_with_constraints(
     for pf in InfiniteOpt.all_parameter_functions(model)
         fwd_map[pf] = [ref_map[pf]]
     end
+
+    InfiniteOpt.build_transformation_backend!(mini)
+    transcribed = InfiniteOpt.transformation_model(mini)
+    JuMP.set_optimizer(transcribed, method.optimizer)
+    JuMP.set_silent(transcribed)
     return DP.GDPSubmodel(mini, decision_vars, fwd_map)
 end
 
@@ -254,56 +320,87 @@ function DP.prepare_max_M_objective(
     return obj.set.lower - obj_func
 end
 
-# Constant interpolation
-function _interpolate(
-    grids::NTuple{N, AbstractVector{<:Real}},
-    values::AbstractArray{<:Real, N}
-    ) where {N}
+# Candidate indices along one axis of the M array: the corners of the
+# grid cell bracketing a scalar query (independent parameter), or the
+# column matching a joint-support query (dependent group; every column
+# when the query is off-support, so the estimate stays conservative)
+function _axis_candidates(grid::AbstractVector{<:Real}, arg::Real)
+    lo = clamp(searchsortedlast(grid, arg), 1, length(grid) - 1)
+    return lo:(lo + 1)
+end
+function _axis_candidates(grid::AbstractMatrix{<:Real}, arg)
+    j = findfirst(k -> isapprox(view(grid, :, k), arg, atol = 1e-10),
+                  axes(grid, 2))
+    return isnothing(j) ? axes(grid, 2) : (j:j)
+end
+
+# Constant interpolation: max of `values` over the candidate indices
+function _interpolate(grids::Tuple, values::AbstractArray{<:Real})
     # mimic the call form of Interpolations.jl's interpolation
-    return (args...) -> _interpolate_at(grids, values, args)
+    return (args...) -> maximum(
+        values[I...] for I in Iterators.product(
+            map(_axis_candidates, grids, args)...))
 end
 
-function _interpolate_at(
-    grids::NTuple{N, AbstractVector{<:Real}},
-    values::AbstractArray{<:Real, N},
-    args::NTuple{N, <:Real}
-    ) where {N}
-    # lower-corner cell index per dimension
-    idx_lo = ntuple(d -> 
-        clamp(searchsortedlast(grids[d], args[d]),1, length(grids[d]) - 1), N
+# The infinite parameters of `mini_expr` and their supports, in the
+# ascending order of `parameter_refs`. An independent parameter gives
+# its sorted support vector; a dependent group gives the matrix whose
+# columns are its joint supports. Grids are read off the mini model so
+# their column order matches the transcription axes; the returned
+# prefs are the main-model parameters.
+function _support_grids(
+    sub::DP.GDPSubmodel, mini_expr::JuMP.AbstractJuMPScalar)
+    reverse_map = Dict(ws[1] => v for (v, ws) in sub.fwd_map)
+    mini_prefs = InfiniteOpt.parameter_refs(mini_expr)
+    prefs = Tuple(getindex.(Ref(reverse_map), p) for p in mini_prefs)
+    return prefs, Tuple(InfiniteOpt.supports(p) for p in mini_prefs)
+end
+
+# Solve the M subproblem exactly at every support
+function DP.sample_M_values(
+    sampler::DP.ExhaustiveSampler,
+    objectives::AbstractArray,
+    sub::DP.GDPSubmodel,
+    method::DP._MBM,
+    support_grids::Tuple
     )
-    # max over the 2^N corners; bit d of k picks lower or upper
-    return maximum(
-        values[ntuple(d -> idx_lo[d] +((k >> (d - 1)) & 1), N)...]
-        for k in 0:(2^N - 1)
-        )
+    M_vals = Array{Float64}(undef, size(objectives))
+    for I in eachindex(objectives)
+        m = DP.compute_M(sub, objectives[I], method)
+        m === nothing && return nothing
+        M_vals[I] = m
+    end
+    return M_vals
 end
 
-# Transcribe mini_expr, solve per support on the transcribed JuMP
-# model, and aggregate to a scalar if uniform, else to a parameter
-# function on main.
-function DP.raw_M(
+# Transcribe mini_expr, compute the per-support M values with the
+# method's sampler, and aggregate to a scalar if uniform, else to a
+# parameter function on main.
+function DP.compute_M(
     sub::DP.GDPSubmodel{<:InfiniteOpt.InfiniteModel},
     mini_expr::JuMP.AbstractJuMPScalar,
     method::DP._MBM
     )
     objectives = InfiniteOpt.transformation_expression(mini_expr)
     transcribed = InfiniteOpt.transformation_model(sub.model)
-    inner_sub = DP.GDPSubmodel(transcribed,JuMP.VariableRef[],
-        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}()
-        )
-    M_vals = Array{typeof(method.default_M)}(undef, size(objectives))
-    for I in eachindex(objectives)
-        m = DP.raw_M(inner_sub, objectives[I], method)
-        m === nothing && return nothing
-        M_vals[I] = m
+    inner_sub = DP.GDPSubmodel(transcribed, JuMP.VariableRef[],
+        Dict{JuMP.VariableRef, Vector{JuMP.VariableRef}}())
+    if objectives isa JuMP.AbstractJuMPScalar
+        return DP.compute_M(inner_sub, objectives, method)
     end
+    # transcription orders the dimensions by parameter group, which is
+    # not the ascending order `parameter_refs` gives the grids below
+    group_idxs = InfiniteOpt.parameter_group_int_indices(mini_expr)
+    if length(group_idxs) > 1 && ndims(objectives) == length(group_idxs)
+        objectives = permutedims(objectives, sortperm(group_idxs))
+    end
+    prefs, grids = _support_grids(sub, mini_expr)
+    M_vals = DP.sample_M_values(method.sampler, objectives,
+        inner_sub, method, grids)
+    M_vals === nothing && return nothing
+    M_vals isa Number && return M_vals
     all(==(first(M_vals)), M_vals) && return first(M_vals)
-    mini_prefs = InfiniteOpt.parameter_refs(mini_expr)
-    reverse_map = Dict(ws[1] => v for (v, ws) in sub.fwd_map)
-    prefs = Tuple(reverse_map[p] for p in mini_prefs)
-    main = JuMP.owner_model(first(prefs))
-    grids = Tuple(InfiniteOpt.supports(p) for p in prefs)
+    main = JuMP.owner_model(first(keys(sub.fwd_map)))
     param_func = InfiniteOpt.build_parameter_function(
         error, _interpolate(grids, M_vals), prefs)
     return InfiniteOpt.add_parameter_function(main, param_func)

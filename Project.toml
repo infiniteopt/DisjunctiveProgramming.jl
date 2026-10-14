@@ -1,7 +1,7 @@
 name = "DisjunctiveProgramming"
 uuid = "0d27d021-0159-4c7d-b4a7-9ccb5d9366cf"
 authors = ["hdavid16 <hperez16@gmail.com>"]
-version = "0.6.1"
+version = "0.7.0"
 
 [deps]
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
@@ -9,22 +9,25 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [weakdeps]
+AbstractGPs = "99985d1d-32ba-4be9-9821-2ec096f28918"
 InfiniteOpt = "20393b10-9daf-11e9-18c9-8db751c92c57"
 
 [extensions]
+AbstractGPsDisjunctiveProgramming = "AbstractGPs"
 InfiniteDisjunctiveProgramming = "InfiniteOpt"
 
 [compat]
+AbstractGPs = "0.5"
 Aqua = "0.8"
+Hypatia = "0.10"
 InfiniteOpt = "0.6.3"
+Ipopt = "1.9.0"
 JuMP = "1.18"
+Juniper = "0.9.3"
 LinearAlgebra = "1"
+Pajarito = "0.8"
 Reexport = "1"
 julia = "1.10"
-Juniper = "0.9.3"
-Ipopt = "1.9.0"
-Hypatia = "0.10"
-Pajarito = "0.8"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
@@ -36,4 +39,4 @@ Pajarito = "2f354839-79df-5901-9f0a-cdb2aac6fe30"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Aqua", "HiGHS", "Test", "Juniper", "Ipopt", "InfiniteOpt", "Hypatia", "Pajarito"]
+test = ["Aqua", "HiGHS", "Test", "Juniper", "Ipopt", "InfiniteOpt", "AbstractGPs", "Hypatia", "Pajarito"]

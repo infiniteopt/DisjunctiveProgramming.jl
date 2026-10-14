@@ -368,38 +368,72 @@ struct BigM{T} <: AbstractReformulationMethod
 end
 
 """
-    MBM{O, T, L <: LogicalVariableRef} <: AbstractReformulationMethod
+    AbstractMBMSampler
+
+Abstract type for the M-value samplers used by [`MBM`](@ref) on
+infinite models. Concrete samplers implement
+[`sample_M_values`](@ref).
+"""
+abstract type AbstractMBMSampler end
+
+"""
+    ExhaustiveSampler <: AbstractMBMSampler
+
+The default M-value sampler for [`MBM`](@ref): solve an M subproblem
+at every support of the infinite model.
+"""
+struct ExhaustiveSampler <: AbstractMBMSampler end
+
+"""
+    MBM{O, T, S} <: AbstractReformulationMethod
 
 A type for using the multiple big-M reformulation approach for disjunctive constraints.
 
 **Fields**
 - `optimizer::O`: Optimizer to use when solving mini-models (required).
 - `default_M::T`: Default big-M value to use if no big-M is specified for a logical variable (1e9).
+- `sampler::S`: M-value sampler for infinite models
+  (`ExhaustiveSampler()`). An [`ExhaustiveSampler`](@ref) solves an M
+  subproblem at every support; a [`GPSampler`](@ref) solves a subset
+  of the supports and fills the rest with a conservative
+  Gaussian-process estimate (see [`sample_M_values`](@ref)). Ignored
+  for finite models.
 """
-mutable struct MBM{O, T} <: AbstractReformulationMethod
+mutable struct MBM{O, T, S <: AbstractMBMSampler} <:
+    AbstractReformulationMethod
     optimizer::O
     default_M::T
-    
+    sampler::S
+
     # Constructor with optimizer (required) and optional default_M
-    function MBM(optimizer::O, default_M::T = 1e9) where {O, T}
-        new{O, T}(optimizer, default_M)
+    # (kwargs cannot bind static parameters, hence typeof(sampler))
+    function MBM(
+        optimizer::O, default_M::T = 1e9;
+        sampler = ExhaustiveSampler()
+        ) where {O, T}
+        new{O, T, typeof(sampler)}(optimizer, default_M, sampler)
     end
 end
 
-mutable struct _MBM{O, T, M <: JuMP.AbstractModel} <: AbstractReformulationMethod
+mutable struct _MBM{O, T, S <: AbstractMBMSampler,
+    M <: JuMP.AbstractModel} <: AbstractReformulationMethod
     optimizer::O
     M::Dict{LogicalVariableRef{M}, Any}
     default_M::T
+    sampler::S
     subproblem_indicators::Vector{LogicalVariableRef{M}}
     # Cached submodels: indicator => GDPSubmodel.
     # Typed Any so extensions can store different types.
     model_cache::Dict{LogicalVariableRef{M}, Any}
 
-    function _MBM(method::MBM{O, T}, model::M) where {O, T, M <: JuMP.AbstractModel}
-        new{O, T, M}(
+    function _MBM(
+        method::MBM{O, T, S}, model::M
+        ) where {O, T, S, M <: JuMP.AbstractModel}
+        new{O, T, S, M}(
             method.optimizer,
             Dict{LogicalVariableRef{M}, Any}(),
             method.default_M,
+            method.sampler,
             Vector{LogicalVariableRef{M}}(),
             Dict{LogicalVariableRef{M}, Any}()
         )

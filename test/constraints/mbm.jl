@@ -111,7 +111,7 @@ function test_prepare_max_M_objective()
         1 - new_vars[x[2]][1])
 end
 
-function test_raw_M()
+function test_compute_M()
     model = GDPModel()
     @variable(model, 0 <= x, start = 1)
     @variable(model, 0 <= y)
@@ -134,19 +134,19 @@ function test_raw_M()
         DisjunctConstraintRef[con2], mbm)
     obj = DP.prepare_max_M_objective(model,
         constraint_object(con), sub)
-    @test DP.raw_M(sub, obj, mbm) == 0.0
+    @test DP.compute_M(sub, obj, mbm) == 0.0
     set_upper_bound(x, 1)
     sub2 = DP.copy_model_with_constraints(model,
         DisjunctConstraintRef[con], mbm)
     obj2 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    @test DP.raw_M(sub2, obj2, mbm) == 15
+    @test DP.compute_M(sub2, obj2, mbm) == 15
     set_integer(y)
     @constraint(model, con3, y*x == 15,
         Disjunct(Y[1]))
     obj3 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub2)
-    @test DP.raw_M(sub2, obj3, mbm) == 15
+    @test DP.compute_M(sub2, obj3, mbm) == 15
     # Fresh _MBM after changing bounds
     JuMP.fix(y, 5; force=true)
     mbm2 = DP._MBM(
@@ -155,7 +155,7 @@ function test_raw_M()
         DisjunctConstraintRef[con], mbm2)
     obj4 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub3)
-    @test DP.raw_M(sub3, obj4, mbm2) == 10
+    @test DP.compute_M(sub3, obj4, mbm2) == 10
     # Infeasible region → nothing
     delete_lower_bound(x)
     mbm3 = DP._MBM(
@@ -164,7 +164,7 @@ function test_raw_M()
         DisjunctConstraintRef[con2], mbm3)
     obj5 = DP.prepare_max_M_objective(model,
         constraint_object(con2), sub4)
-    @test DP.raw_M(sub4, obj5, mbm3) == nothing
+    @test DP.compute_M(sub4, obj5, mbm3) == nothing
 
     # infeasible (x >= 100 but x <= 1)
     set_upper_bound(x, 1)
@@ -175,7 +175,7 @@ function test_raw_M()
         mbm4)
     obj6 = DP.prepare_max_M_objective(model,
         constraint_object(con), sub5)
-    @test DP.raw_M(sub5, obj6, mbm4) == nothing
+    @test DP.compute_M(sub5, obj6, mbm4) == nothing
 
     # Unbounded subproblem → default_M fallback.
     # No lower bound on x means max(5 - x) s.t. x <= 3
@@ -191,7 +191,7 @@ function test_raw_M()
         DisjunctConstraintRef[ub_con1], mbm_ub)
     obj_ub = DP.prepare_max_M_objective(model_ub,
         constraint_object(ub_con2), sub_ub)
-    @test DP.raw_M(sub_ub, obj_ub, mbm_ub) == mbm_ub.default_M
+    @test DP.compute_M(sub_ub, obj_ub, mbm_ub) == mbm_ub.default_M
 end
 
 function test_maximize_M()
@@ -811,7 +811,7 @@ end
     test__replace_variables_quad_numeric_map()
     test_replace_variables_in_constraint()
     test_prepare_max_M_objective()
-    test_raw_M()
+    test_compute_M()
     test_maximize_M()
     test_reformulate_disjunct_constraint()
     test_reformulate_disjunct()
