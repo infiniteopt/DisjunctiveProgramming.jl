@@ -656,7 +656,8 @@ mutable struct GDPData{M <: JuMP.AbstractModel, V <: JuMP.AbstractVariableRef, C
     constraint_to_indicator::Dict{Union{DisjunctConstraintRef{M}, DisjunctionRef{M}}, LogicalVariableRef{M}} # needed for deletion
 
     # Basic step mappings
-    product_to_parents::Dict{LogicalVariableRef{M}, Vector{LogicalVariableRef{M}}}
+    product_to_parents::Dict{LogicalVariableRef{M},
+        Vector{LogicalVariableRef{M}}}
 
     # Helpful metadata for most reformulations (not just one of them)
     variable_bounds::Dict{V, Tuple{T, T}}

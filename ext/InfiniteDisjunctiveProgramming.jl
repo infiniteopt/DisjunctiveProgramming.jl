@@ -172,12 +172,9 @@ function JuMP.add_constraint(
 end
 
 # Resolve the ambiguity between InfiniteOpt's generic
-# `delete(::InfiniteModel, vref)` and DP's typed deletes by forwarding
-# to the DP implementation (needed when a basic step deletes its input
-# disjunctions and disjunct constraints).
-# Resolve the ambiguity between InfiniteOpt's generic
-# `delete(::InfiniteModel, vref)` and DP's typed deletes. The ref types
-# must be concrete, since a `Union` of them is not specific enough.
+# `delete(::InfiniteModel, vref)` and DP's typed deletes (needed when a
+# basic step deletes its inputs). The ref types must be concrete, since
+# a `Union` of them is not specific enough.
 function JuMP.delete(
     m::InfiniteOpt.InfiniteModel, cref::DP.DisjunctionRef
     )
