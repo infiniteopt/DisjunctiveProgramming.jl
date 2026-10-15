@@ -234,6 +234,24 @@ function test_split_quad_terms_infinite()
         affine_part, @expression(model, t*x + t*pf + 3x + 2))
 end
 
+# the variable can sit on either side of a variable-parameter product
+function test_disaggregate_affine_terms_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    affine_part = @expression(model, 2*x*t + pf*x + 3x + 2)
+    new_expr = DP._disaggregate_affine_terms(model, affine_part, bvref, method)
+    @test isequal_canonical(new_expr,
+        @expression(model, 2*x_z*t + pf*x_z + 3x_z + 2bvref))
+end
+
 function test_epsilon_quad_hull_parameter()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
@@ -1868,6 +1886,7 @@ end
 
     @testset "Exact Quadratic Hull" begin
         test_split_quad_terms_infinite()
+        test_disaggregate_affine_terms_infinite()
         test_epsilon_quad_hull_parameter()
         test_gehr_infinite()
         test_cehr_infinite()
