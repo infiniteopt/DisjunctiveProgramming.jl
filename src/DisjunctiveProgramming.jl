@@ -6,6 +6,8 @@ Reexport.@reexport using JuMP
 
 # Use Meta for metaprogramming
 using Base.Meta
+# Convexity checks for the exact quadratic hull reformulations
+import LinearAlgebra
 # Create aliases
 import JuMP.MOI as _MOI
 import JuMP.MOIU.CleverDicts as _MOIUC
