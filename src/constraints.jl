@@ -110,6 +110,12 @@ end
 Delete a disjunction constraint from the `GDP model`.
 """
 function JuMP.delete(model::JuMP.AbstractModel, cref::DisjunctionRef)
+    return _delete(model, cref)
+end
+
+# Implementations of `JuMP.delete`. Extensions whose model type makes
+# the dispatch above ambiguous call these directly.
+function _delete(model::JuMP.AbstractModel, cref::DisjunctionRef)
     @assert JuMP.is_valid(model, cref) "Disjunction does not belong to model."
     if JuMP.constraint_object(cref).nested
         lvref = gdp_data(model).constraint_to_indicator[cref]
@@ -132,6 +138,10 @@ end
 Delete a disjunct constraint from the `GDP model`.
 """
 function JuMP.delete(model::JuMP.AbstractModel, cref::DisjunctConstraintRef)
+    return _delete(model, cref)
+end
+
+function _delete(model::JuMP.AbstractModel, cref::DisjunctConstraintRef)
     @assert JuMP.is_valid(model, cref) "Disjunctive constraint does not belong to model."
     delete!(_disjunct_constraints(model), JuMP.index(cref))
     lvref = gdp_data(model).constraint_to_indicator[cref]
@@ -147,6 +157,10 @@ end
 Delete a logical constraint from the `GDP model`.
 """
 function JuMP.delete(model::JuMP.AbstractModel, cref::LogicalConstraintRef)
+    return _delete(model, cref)
+end
+
+function _delete(model::JuMP.AbstractModel, cref::LogicalConstraintRef)
     @assert JuMP.is_valid(model, cref) "Logical constraint does not belong to model."
     delete!(_logical_constraints(model), JuMP.index(cref))
     _set_ready_to_optimize(model, false)
@@ -207,6 +221,10 @@ function JuMP.build_constraint(
     return _DisjunctConstraint(constr, tag.indicator)
 end
 
+_set_support(::_MOI.AbstractSet) = false
+_set_support(
+    ::Union{_MOI.Nonnegatives, _MOI.Nonpositives, _MOI.Zeros}
+) = true
 # MOI conic sets handled by the BigM and Hull conic reformulations
 # (Bernal Neira & Grossmann 2021). The affine map A*x - b sits inside
 # the cone; the nonlinearity is carried by the cone itself.

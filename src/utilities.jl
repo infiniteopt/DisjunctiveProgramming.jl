@@ -78,6 +78,7 @@ function relax_logical_vars(model::JuMP.AbstractModel)
     binary_refs = V[]
     for (_, bvar) in _indicator_to_binary(model)
         bvar isa V || continue
+        JuMP.is_binary(bvar) || continue # already relaxed
         push!(binary_refs, bvar)
         JuMP.unset_binary(bvar)
         JuMP.set_lower_bound(bvar, 0.0)

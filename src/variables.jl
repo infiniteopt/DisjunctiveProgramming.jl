@@ -333,12 +333,17 @@ end
 Delete the logical variable associated with `vref` from the `GDP model`.
 """
 function JuMP.delete(model::JuMP.AbstractModel, vref::LogicalVariableRef)
+    return _delete(model, vref)
+end
+
+function _delete(model::JuMP.AbstractModel, vref::LogicalVariableRef)
     @assert JuMP.is_valid(model, vref) "Variable does not belong to model."
     vidx = JuMP.index(vref)
     dict = _logical_variables(model)
     # delete any disjunct constraints associated with the logical variables in the disjunction
     if haskey(_indicator_to_constraints(model), vref)
-        crefs = _indicator_to_constraints(model)[vref]
+        # copy since delete mutates the mapped vector
+        crefs = copy(_indicator_to_constraints(model)[vref])
         JuMP.delete.(model, crefs)
         delete!(_indicator_to_constraints(model), vref)
     end
@@ -361,6 +366,7 @@ function JuMP.delete(model::JuMP.AbstractModel, vref::LogicalVariableRef)
     end
     delete!(dict, vidx)
     delete!(_indicator_to_binary(model), vref)
+    delete!(_product_to_parents(model), vref)
     # not ready to optimize
     _set_ready_to_optimize(model, false)
     return 

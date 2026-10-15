@@ -194,6 +194,39 @@ The following reformulation methods are currently supported:
     - `final_reform_method`: Reformulation method to apply after cutting plane iterations. Default: `BigM()`.
     - `M_value`: Big-M value to use in the relaxed Big-M reformulation during iterations. Default: `1e9`.
 
+## Basic Steps
+
+A [basic step](https://epubs.siam.org/doi/10.1137/0606047) intersects two or more disjunctions into a single one whose disjuncts are the intersections of the original disjuncts, taken over their cartesian product. The feasible region is unchanged, but the hull relaxation of the result is at least as tight as before. Global constraints can also be intersected into a disjunction (an improper basic step), which is done with the `constraints` keyword argument:
+
+```julia
+using DisjunctiveProgramming, HiGHS
+
+model = GDPModel(HiGHS.Optimizer)
+@variable(model, 0 <= x <= 5)
+@variable(model, Y[1:2], Logical)
+@variable(model, Z[1:2], Logical)
+@objective(model, Max, x)
+@constraint(model, x <= 1, Disjunct(Y[1]))
+@constraint(model, 2 <= x <= 3, Disjunct(Y[2]))
+@constraint(model, x <= 1, Disjunct(Z[1]))
+@constraint(model, 4 <= x <= 5, Disjunct(Z[2]))
+d1 = disjunction(model, Y)
+d2 = disjunction(model, Z)
+
+# replace both disjunctions with their 4 term product disjunction
+apply_basic_step(model, [d1, d2])
+
+optimize!(model, gdp_method = Hull())
+```
+
+`apply_basic_step` deletes the original disjunctions and their disjunct constraints, but keeps the original logical variables and ties them to the new product indicators with `Exactly` constraints, so any reformulation method can be used afterwards. The indicators of the disjuncts that were intersected to form a product disjunct can be queried with `product_parents(w)`, where `w` is one of the indicators of the returned disjunction. It accepts the following optional arguments:
+
+- `constraints`: Global constraints to intersect into every disjunct of the new disjunction. They are deleted from the model afterwards.
+- `name`: Base name for the product disjunction, its indicator variables, and the linking constraints. Anonymous by default.
+- `relax_products`: If `true`, the binary variables of the product indicators are relaxed to `[0, 1]`. This is valid because the original indicators remain binary and force the products integral, and it avoids growing the number of binary variables.
+
+Note that the number of disjuncts of the product disjunction is the product of those of the inputs, so repeated basic steps grow the model multiplicatively. Intersecting disjunctions that share variables (or that are coupled by an intersected global constraint) is what tightens the relaxation; disjunctions over disjoint variables gain nothing and only pay the size cost.
+
 ## Conic Constraints
 
 Disjunct constraints can also be defined with the conic sets `SecondOrderCone`, `RotatedSecondOrderCone`, `MOI.ExponentialCone`, and `MOI.PowerCone`. Big-M reformulates these by relaxing the constraint function along a fixed interior direction of the cone, and Hull produces the exact conic hull of [Bernal Neira & Grossmann [2021]](https://arxiv.org/abs/2109.09657).
