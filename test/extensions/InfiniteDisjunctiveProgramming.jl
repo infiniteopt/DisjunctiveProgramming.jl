@@ -1,4 +1,4 @@
-using InfiniteOpt, HiGHS, Ipopt, Juniper
+using InfiniteOpt, HiGHS, Ipopt, Juniper, Pajarito, Hypatia
 import DisjunctiveProgramming as DP
 
 # Helper to access internal function
@@ -121,6 +121,7 @@ function test_requires_disaggregation()
     @test DP.requires_disaggregation(y) == true
 end
 
+# Parameter refs in disjunct constraints answer the standard JuMP
 function test_all_variables_infiniteopt()
     model = InfiniteGDPModel()
     @infinite_parameter(model, t ∈ [0, 1])
@@ -195,6 +196,291 @@ function test_disaggregate_expression_infiniteopt()
     aff_not_disagg = @expression(model, 3*y + 1)
     result_not_disagg = DP.disaggregate_expression(model, aff_not_disagg, bvref, method)
     @test haskey(result_not_disagg.terms, y)
+end
+
+function test_disaggregate_expression_parameter()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @finite_parameter(model, p == 2.0)
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, 0 <= x <= 10, Infinite(t))
+    @variable(model, w, Bin)
+    @variable(model, z, InfiniteLogical(t))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    dvref = method.disjunct_variables[x, bvref]
+    # parameters scale with the indicator, variables map through
+    @test isequal_canonical(
+        DP.disaggregate_expression(model, t, bvref, method), t * bvref)
+    @test isequal_canonical(
+        DP.disaggregate_expression(model, p, bvref, method), p * bvref)
+    @test isequal_canonical(
+        DP.disaggregate_expression(model, pf, bvref, method), pf * bvref)
+    @test isequal(DP.disaggregate_expression(model, x, bvref, method), dvref)
+    @test isequal(DP.disaggregate_expression(model, w, bvref, method), w)
+end
+
+function test_split_quad_terms_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, x, Infinite(t))
+    quad = @expression(model, x^2 + t*x + t*pf + 3x + 2)
+    quad_part, affine_part = DP._split_quad_terms(quad)
+    @test isequal_canonical(quad_part, @expression(model, x^2))
+    @test isequal_canonical(
+        affine_part, @expression(model, t*x + t*pf + 3x + 2))
+end
+
+# the variable can sit on either side of a variable-parameter product
+function test_disaggregate_affine_terms_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    affine_part = @expression(model, 2*x*t + pf*x + 3x + 2)
+    new_expr = DP._disaggregate_affine_terms(model, affine_part, bvref, method)
+    @test isequal_canonical(new_expr,
+        @expression(model, 2*x_z*t + pf*x_z + 3x_z + 2bvref))
+end
+
+function test_epsilon_quad_hull_parameter()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, x^2 + pf*x <= 1, Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    ϵ = 1e-3
+    method = DP._Hull(Hull(ϵ), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 1
+    # pf*ν stays undivided, ν² is ε-divided, the set value scales with y
+    vals1 = Dict(x_z => 2.0, pf => 0.5, bvref => 1.0)
+    @test _eval_at(v -> vals1[v], ref[1].func) ≈ 4.0 + 1.0 - 1.0
+    vals2 = Dict(x_z => 1.0, pf => 0.5, bvref => 0.5)
+    expected2 = 1.0 / ((1 - ϵ)*0.5 + ϵ) + 0.5 - 0.5
+    @test _eval_at(v -> vals2[v], ref[1].func) ≈ expected2
+end
+
+# evaluate an expression at a point (InfiniteOpt lacks value(f, vref))
+_eval_at(f, x::Number) = x
+_eval_at(f, v::GeneralVariableRef) = f(v)
+function _eval_at(f, e::JuMP.GenericAffExpr)
+    return e.constant + sum(c * f(v) for (v, c) in e.terms; init = 0.0)
+end
+function _eval_at(f, e::JuMP.GenericQuadExpr)
+    return _eval_at(f, e.aff) +
+        sum(c * f(p.a) * f(p.b) for (p, c) in e.terms; init = 0.0)
+end
+function _eval_at(f, e::JuMP.GenericNonlinearExpr)
+    return getfield(Base, e.head)((_eval_at(f, a) for a in e.args)...)
+end
+
+function test_gehr_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, x^2 + t*x <= 1, Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(quadratic = :gehr), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 1
+    @test ref[1].set == MOI.LessThan(0)
+    # GEHR must give ν² + t*ν*y - y² (parameter terms scale once with y)
+    vals1 = Dict(x_z => 2.0, t => 0.5, bvref => 1.0)
+    @test _eval_at(v -> vals1[v], ref[1].func) ≈ 4.0 + 1.0 - 1.0
+    vals2 = Dict(x_z => 1.0, t => 1.0, bvref => 0.5)
+    @test _eval_at(v -> vals2[v], ref[1].func) ≈ 1.0 + 0.5 - 0.25
+end
+
+function test_cehr_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, x^2 + 2x - pf <= 0, Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(quadratic = :exact), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 2
+    tvars = filter(v -> startswith(name(v), "t_cehr"),
+                   DP._reformulation_variables(model))
+    @test length(tvars) == 1
+    tvref = only(tvars)
+    # the epigraph variable is infinite over the constraint's parameter
+    @test isequal(parameter_refs(tvref), (t,))
+    @test lower_bound(tvref) == 0
+    @test isequal_canonical(ref[1].func, x_z^2 - tvref*bvref)
+    @test ref[1].set == MOI.LessThan(0.0)
+    @test isequal_canonical(ref[2].func, tvref + 2*x_z - pf*bvref)
+    @test ref[2].set == MOI.LessThan(0.0)
+end
+
+function test_cehr_conic_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @parameter_function(model, pf == t -> 2t)
+    @variable(model, -2 <= x <= 3, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, x^2 + 2x - pf <= 0, Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(quadratic = :cehr_conic), Set([x]))
+    DP._variable_bounds(model)[x] = DP.set_variable_bound_info(x, Hull())
+    DP._disaggregate_variables(model, z, Set([x]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 2
+    tvref = only(filter(v -> startswith(name(v), "t_cehr"),
+                        DP._reformulation_variables(model)))
+    @test isequal(parameter_refs(tvref), (t,))
+    @test ref[1].set == MOI.RotatedSecondOrderCone(3)
+    @test isequal_canonical(ref[1].func[1], 0.5 * tvref)
+    @test isequal_canonical(ref[1].func[2], 1.0 * bvref)
+    @test abs(coefficient(ref[1].func[3], x_z)) ≈ 1.0
+    @test isequal_canonical(ref[2].func, tvref + 2*x_z - pf*bvref)
+    @test ref[2].set == MOI.LessThan(0.0)
+end
+
+function test_cehr_epigraph_finite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @variable(model, -2 <= v <= 3)
+    @variable(model, z, Logical)
+    @constraint(model, con, v^2 + 2v <= 1, Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(quadratic = :exact), Set([v]))
+    DP._variable_bounds(model)[v] = DP.set_variable_bound_info(v, Hull())
+    DP._disaggregate_variables(model, z, Set([v]), method)
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 2
+    tvref = only(filter(v -> startswith(name(v), "t_cehr"),
+                        DP._reformulation_variables(model)))
+    # a purely finite constraint gets a finite epigraph variable
+    @test isempty(parameter_refs(tvref))
+end
+
+function test_conic_hull_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @parameter_function(model, pf == t -> 5t)
+    @variable(model, -10 <= x <= 10, Infinite(t))
+    @variable(model, -10 <= w <= 10, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, [1, x - pf, w] in SecondOrderCone(), Disjunct(z))
+    @constraint(model, con2, [pf, x, w] in SecondOrderCone(), Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    method = DP._Hull(Hull(), Set([x, w]))
+    for v in (x, w)
+        DP._variable_bounds(model)[v] = DP.set_variable_bound_info(v, Hull())
+    end
+    DP._disaggregate_variables(model, z, Set([x, w]), method)
+    x_z = method.disjunct_variables[x, bvref]
+    w_z = method.disjunct_variables[w, bvref]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, method)
+    @test length(ref) == 1
+    @test ref[1].set == MOI.SecondOrderCone(3)
+    T = eltype(ref[1].func)
+    @test isequal_canonical(ref[1].func[1], convert(T, 1 * bvref))
+    @test isequal_canonical(ref[1].func[2], convert(T, x_z - pf*bvref))
+    @test isequal_canonical(ref[1].func[3], convert(T, 1 * w_z))
+    # bare parameter rows scale with the indicator too
+    ref2 = reformulate_disjunct_constraint(
+        model, constraint_object(con2), bvref, method)
+    T2 = eltype(ref2[1].func)
+    @test isequal_canonical(ref2[1].func[1], convert(T2, pf * bvref))
+    @test isequal_canonical(ref2[1].func[2], convert(T2, 1 * x_z))
+end
+
+function test_conic_all_cones_infinite()
+    cones = [
+        (x -> [1, x[1], x[2]], SecondOrderCone(), MOI.SecondOrderCone(3)),
+        (x -> [1, x[1], x[2]], RotatedSecondOrderCone(),
+         MOI.RotatedSecondOrderCone(3)),
+        (x -> [x[1], 1, x[2]], MOI.ExponentialCone(), MOI.ExponentialCone()),
+        (x -> [x[1], 1, x[2]], MOI.PowerCone(0.5), MOI.PowerCone(0.5)),
+    ]
+    for (rows, set, moi_set) in cones, meth in (Hull(), BigM(100))
+        model = InfiniteGDPModel()
+        @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+        @variable(model, -10 <= x <= 10, Infinite(t))
+        @variable(model, -10 <= w <= 10, Infinite(t))
+        shift = 1 + t
+        @variable(model, Y[1:2], InfiniteLogical(t))
+        @constraint(model, rows([x - shift, w]) in set, Disjunct(Y[1]))
+        @constraint(model, rows([x, w]) in set, Disjunct(Y[2]))
+        @disjunction(model, Y)
+        DP.reformulate_model(model, meth)
+        sets = [constraint_object(c).set
+                for c in DP._reformulation_constraints(model)]
+        @test count(==(moi_set), sets) == 2
+        InfiniteOpt.build_transformation_backend!(model)
+        @test num_variables(InfiniteOpt.transformation_model(model)) > 0
+    end
+end
+
+function test_conic_constant_row_infinite()
+    # a constant row in a zero-direction slot keeps no variables under
+    # BigM and transcribes to a number; InfiniteOpt must promote the
+    # row vector to a common type (fork transcription fix)
+    for meth in (Hull(), BigM(100))
+        model = InfiniteGDPModel()
+        @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+        @variable(model, -10 <= x <= 10, Infinite(t))
+        @variable(model, 0 <= u <= 10, Infinite(t))
+        @variable(model, Y[1:2], InfiniteLogical(t))
+        @constraint(model, [u, x, 3] in SecondOrderCone(), Disjunct(Y[1]))
+        @constraint(model, [u, x - 5, 3] in SecondOrderCone(),
+                    Disjunct(Y[2]))
+        @disjunction(model, Y)
+        DP.reformulate_model(model, meth)
+        InfiniteOpt.build_transformation_backend!(model)
+        @test num_variables(InfiniteOpt.transformation_model(model)) > 0
+    end
+end
+
+function test_conic_bigm_infinite()
+    model = InfiniteGDPModel()
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @parameter_function(model, pf == t -> 5t)
+    @variable(model, -10 <= x <= 10, Infinite(t))
+    @variable(model, -10 <= w <= 10, Infinite(t))
+    @variable(model, z, InfiniteLogical(t))
+    @constraint(model, con, [1, x - pf, w] in SecondOrderCone(), Disjunct(z))
+    bvref = DP._indicator_to_binary(model)[z]
+    ref = reformulate_disjunct_constraint(
+        model, constraint_object(con), bvref, BigM(100))
+    @test length(ref) == 1
+    @test ref[1].set == MOI.SecondOrderCone(3)
+    @test isequal_canonical(ref[1].func[1], 1 + 100*(1 - bvref))
+    @test isequal_canonical(ref[1].func[2], x - pf + 0*bvref)
+    @test isequal_canonical(ref[1].func[3], 1.0*w + 0*bvref)
 end
 
 function test_variable_properties_infiniteopt()
@@ -793,6 +1079,130 @@ function test_methods()
     @test optimize!(model, gdp_method = PSplit(3, model)) isa Nothing
     @test objective_value(model) ≈ expected_obj atol=tol
     @test value(z) ≈ expected_z atol=tol
+end
+
+function test_conic_methods_infinite()
+    # Infinite version of the circle disjunction from test/solve.jl:
+    # unit disk at the origin or at (5t, 0); minimizing the integral of
+    # x picks the origin disk with x(t) = -1.
+    oa = optimizer_with_attributes(HiGHS.Optimizer, MOI.Silent() => true)
+    cs = optimizer_with_attributes(Hypatia.Optimizer, MOI.Silent() => true)
+    paj = optimizer_with_attributes(Pajarito.Optimizer,
+        "oa_solver" => oa, "conic_solver" => cs, "verbose" => false)
+    for meth in (BigM(100), Hull())
+        model = InfiniteGDPModel(paj)
+        set_attribute(model, MOI.Silent(), true)
+        @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+        @variable(model, -10 <= x <= 10, Infinite(t))
+        @variable(model, -10 <= w <= 10, Infinite(t))
+        center = 5t
+        @variable(model, Y[1:2], InfiniteLogical(t))
+        @objective(model, Min, ∫(x, t))
+        @constraint(model, [1, x, w] in SecondOrderCone(), Disjunct(Y[1]))
+        @constraint(model, [1, x - center, w] in SecondOrderCone(),
+            Disjunct(Y[2]))
+        @disjunction(model, Y)
+        @test optimize!(model, gdp_method = meth) isa Nothing
+        @test termination_status(model) == MOI.OPTIMAL
+        @test objective_value(model) ≈ -1 atol = 1e-3
+        @test all(isapprox.(value(x), -1, atol = 1e-3))
+    end
+end
+
+function test_exact_quad_methods_infinite()
+    # Disk at (4t - 2, 0) or the unit disk at the origin: the optimal
+    # x(t) = min(4t - 3, -1) switches disjunct at
+    # t = 0.5. All methods must agree on the objective.
+    ipopt = optimizer_with_attributes(Ipopt.Optimizer,
+        "print_level" => 0, "sb" => "yes")
+    juniper = optimizer_with_attributes(Juniper.Optimizer,
+        "nl_solver" => ipopt)
+    objectives = Float64[]
+    for meth in (BigM(100), Hull(), Hull(quadratic = :exact),
+                 Hull(quadratic = :gehr))
+        model = InfiniteGDPModel(juniper)
+        set_attribute(model, MOI.Silent(), true)
+        @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+        @variable(model, -10 <= x <= 10, Infinite(t))
+        @variable(model, -10 <= w <= 10, Infinite(t))
+        center = 4t - 2
+        @variable(model, Y[1:2], InfiniteLogical(t))
+        @objective(model, Min, ∫(x, t))
+        @constraint(model, (x - center)^2 + w^2 <= 1, Disjunct(Y[1]))
+        @constraint(model, x^2 + w^2 <= 1, Disjunct(Y[2]))
+        @disjunction(model, Y)
+        @test optimize!(model, gdp_method = meth) isa Nothing
+        @test termination_status(model) in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
+        push!(objectives, objective_value(model))
+        @test value(x) ≈ [-3.0, -1.0, -1.0] atol = 1e-3
+    end
+    @test all(isapprox.(objectives, objectives[1], atol = 1e-3))
+end
+
+function test_cehr_conic_methods_infinite()
+    # Same switching geometry without a squared-centre term so the CEHR
+    # link stays quadratic and the transcription is a true MISOCP for
+    # Pajarito: x² - 2c⋅x + w² <= 1 is the disk at (c, 0) with radius
+    # √(1+c²), c = 4t - 2.
+    oa = optimizer_with_attributes(HiGHS.Optimizer, MOI.Silent() => true)
+    cs = optimizer_with_attributes(Hypatia.Optimizer, MOI.Silent() => true)
+    paj = optimizer_with_attributes(Pajarito.Optimizer,
+        "oa_solver" => oa, "conic_solver" => cs, "verbose" => false)
+    model = InfiniteGDPModel(paj)
+    set_attribute(model, MOI.Silent(), true)
+    @infinite_parameter(model, t ∈ [0, 1], supports = [0.0, 0.5, 1.0])
+    @variable(model, -10 <= x <= 10, Infinite(t))
+    @variable(model, -10 <= w <= 10, Infinite(t))
+    center = 4t - 2
+    @variable(model, Y[1:2], InfiniteLogical(t))
+    @objective(model, Min, ∫(x, t))
+    @constraint(model, x^2 - 2*center*x + w^2 <= 1, Disjunct(Y[1]))
+    @constraint(model, x^2 + w^2 <= 1, Disjunct(Y[2]))
+    @disjunction(model, Y)
+    @test optimize!(model, gdp_method = Hull(quadratic = :cehr_conic)) isa
+        Nothing
+    @test termination_status(model) == MOI.OPTIMAL
+    expected = [min(p - sqrt(1 + p^2), -1.0) for p in (-2.0, 0.0, 2.0)]
+    @test value(x) ≈ expected atol = 1e-3
+end
+
+function test_exact_quad_ground_truth()
+    # Reformulate-then-transcribe must match transcribing first: fix the
+    # centre at each support and solve the finite GDP with the same method.
+    ipopt = optimizer_with_attributes(Ipopt.Optimizer,
+        "print_level" => 0, "sb" => "yes")
+    juniper = optimizer_with_attributes(Juniper.Optimizer,
+        "nl_solver" => ipopt)
+    supports = [0.0, 0.5, 1.0]
+    for meth in (Hull(quadratic = :exact), Hull(quadratic = :gehr))
+        model = InfiniteGDPModel(juniper)
+        set_attribute(model, MOI.Silent(), true)
+        @infinite_parameter(model, t ∈ [0, 1], supports = supports)
+        @variable(model, -10 <= x <= 10, Infinite(t))
+        @variable(model, -10 <= w <= 10, Infinite(t))
+        center = 4t - 2
+        @variable(model, Y[1:2], InfiniteLogical(t))
+        @objective(model, Min, ∫(x, t))
+        @constraint(model, (x - center)^2 + w^2 <= 1, Disjunct(Y[1]))
+        @constraint(model, x^2 + w^2 <= 1, Disjunct(Y[2]))
+        @disjunction(model, Y)
+        optimize!(model, gdp_method = meth)
+        xvals = value(x)
+        for (k, s) in enumerate(supports)
+            m = GDPModel(juniper)
+            set_attribute(m, MOI.Silent(), true)
+            center = 4s - 2
+            @variable(m, -10 <= xs <= 10)
+            @variable(m, -10 <= ws <= 10)
+            @variable(m, Ys[1:2], Logical)
+            @objective(m, Min, xs)
+            @constraint(m, (xs - center)^2 + ws^2 <= 1, Disjunct(Ys[1]))
+            @constraint(m, xs^2 + ws^2 <= 1, Disjunct(Ys[2]))
+            @disjunction(m, Ys)
+            optimize!(m, gdp_method = meth)
+            @test xvals[k] ≈ value(xs) atol = 1e-3
+        end
+    end
 end
 
 function test_mbm_with_derivatives()
@@ -1464,6 +1874,24 @@ end
     @testset "Methods" begin
         test_get_constant()
         test_disaggregate_expression_infiniteopt()
+        test_disaggregate_expression_parameter()
+    end
+
+    @testset "Conic" begin
+        test_conic_hull_infinite()
+        test_conic_bigm_infinite()
+        test_conic_all_cones_infinite()
+        test_conic_constant_row_infinite()
+    end
+
+    @testset "Exact Quadratic Hull" begin
+        test_split_quad_terms_infinite()
+        test_disaggregate_affine_terms_infinite()
+        test_epsilon_quad_hull_parameter()
+        test_gehr_infinite()
+        test_cehr_infinite()
+        test_cehr_conic_infinite()
+        test_cehr_epigraph_finite()
     end
 
     @testset "MBM" begin
@@ -1492,6 +1920,10 @@ end
     @testset "Integration" begin
         test_infiniteopt_extension()
         test_methods()
+        test_conic_methods_infinite()
+        test_exact_quad_methods_infinite()
+        test_cehr_conic_methods_infinite()
+        test_exact_quad_ground_truth()
         test_evaluate_at_zero_infinite()
         test_hull_infinite_nonlinear()
         test_hull_infinite_nonlinear_parameter()
