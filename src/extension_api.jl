@@ -117,3 +117,37 @@ function sample_M_values(sampler, objectives, sub, method, support_grids)
           "AbstractGPs loaded) to estimate M values with a " *
           "Gaussian process.")
 end
+
+################################################################################
+#                           MATHOPTAI PREDICTORS
+################################################################################
+"""
+    Disjunctive(predictor::MathOptAI.AbstractPredictor)
+
+Wrap a MathOptAI predictor so that `MathOptAI.add_predictor` embeds it in
+a [`GDPModel`](@ref) as a disjunction instead of MathOptAI's own
+mixed-integer formulation. The disjunction is reformulated like any other
+when the model is solved with `optimize!(model, gdp_method = ...)` or by
+[`reformulate_model`](@ref). Requires `MathOptAI` to be loaded. Supports
+`BinaryDecisionTree` with constant or `Affine` leaves: one disjunct per
+leaf, carrying the root-to-leaf split rows and the leaf model.
+
+The returned `Formulation` holds the output variable, the leaf indicators,
+the output bounds, the disjunct constraints and the disjunction.
+
+**Example**
+```julia
+julia> using DisjunctiveProgramming, MathOptAI, HiGHS
+
+julia> tree = MathOptAI.BinaryDecisionTree(1, 0.0, -1, 1);
+
+julia> model = GDPModel(HiGHS.Optimizer);
+
+julia> @variable(model, -1 <= x[1:1] <= 1);
+
+julia> y, f = MathOptAI.add_predictor(model, Disjunctive(tree), x);
+
+julia> optimize!(model, gdp_method = Hull())
+```
+"""
+function Disjunctive end

@@ -11,10 +11,12 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 [weakdeps]
 AbstractGPs = "99985d1d-32ba-4be9-9821-2ec096f28918"
 InfiniteOpt = "20393b10-9daf-11e9-18c9-8db751c92c57"
+MathOptAI = "e52c2cb8-508e-4e12-9dd2-9c4755b60e73"
 
 [extensions]
 AbstractGPsDisjunctiveProgramming = "AbstractGPs"
 InfiniteDisjunctiveProgramming = "InfiniteOpt"
+MathOptAIDisjunctiveProgramming = "MathOptAI"
 
 [compat]
 AbstractGPs = "0.5"
@@ -25,6 +27,7 @@ Ipopt = "1.9.0"
 JuMP = "1.18"
 Juniper = "0.9.3"
 LinearAlgebra = "1"
+MathOptAI = "0.1.19, 0.2, 1"
 Pajarito = "0.8"
 Reexport = "1"
 julia = "1.10"
@@ -39,4 +42,4 @@ Pajarito = "2f354839-79df-5901-9f0a-cdb2aac6fe30"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Aqua", "HiGHS", "Test", "Juniper", "Ipopt", "InfiniteOpt", "AbstractGPs", "Hypatia", "Pajarito"]
+test = ["Aqua", "HiGHS", "Test", "Juniper", "Ipopt", "InfiniteOpt", "AbstractGPs", "Hypatia", "Pajarito", "MathOptAI"]
