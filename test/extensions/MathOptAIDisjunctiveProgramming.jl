@@ -1,4 +1,4 @@
-using HiGHS, MathOptAI
+using HiGHS, MathOptAI, InfiniteOpt
 import DisjunctiveProgramming as DP
 
 # x[1] <= 0 ? -1 : (x[1] <= 1 ? 0 : 1), MathOptAI's own docstring example.
@@ -122,10 +122,53 @@ function test_affine_leaves()
     @test value(y[1]) ≈ -9 && value(x[1]) ≈ -3 && value(x[2]) ≈ 3
 end
 
+# tree evaluated pointwise: y(t) and the leaf indicators follow x(t), so the
+# active leaf changes across the supports
+function test_infinite_tree()
+    for method in [BigM(), Hull(), MBM(HiGHS.Optimizer)]
+        model = InfiniteGDPModel(HiGHS.Optimizer)
+        set_silent(model)
+        @infinite_parameter(model, t in [0, 1], num_supports = 11)
+        @variable(model, -5 <= x[1:1] <= 5, Infinite(t))
+        y, formulation = MathOptAI.add_predictor(model,
+            Disjunctive(_step_tree()), x)
+        @test parameter_refs(y[1]) == (t,)
+        @test lower_bound(y[1]) == -1 && upper_bound(y[1]) == 1
+        @test all(v -> v isa LogicalVariableRef, formulation.variables[2:end])
+        @constraint(model, x[1] == 4t - 2)
+        optimize!(model, gdp_method = method)
+        @test is_solved_and_feasible(model)
+        xvals = value(x[1])
+        @test value(y[1]) ≈ _step_value.(xvals) atol = 1e-6
+        @test length(value(formulation.variables[2])) == 11
+    end
+end
+_step_value(x) = x <= -1e-3 ? -1.0 : (x <= 1 - 1e-3 ? 0.0 : 1.0)
+
+# an infinite parameter as an input takes its domain as bounds
+function test_infinite_tree_parameter_input()
+    for method in [BigM(), Hull()]
+        model = InfiniteGDPModel(HiGHS.Optimizer)
+        set_silent(model)
+        @infinite_parameter(model, t in [0, 1], num_supports = 11)
+        @variable(model, -3 <= x <= 3, Infinite(t))
+        y, _ = MathOptAI.add_predictor(model, Disjunctive(_affine_tree()),
+            [x, t])
+        @test lower_bound(y[1]) == -7 && upper_bound(y[1]) == 7
+        @constraint(model, x == 3t - 1)
+        optimize!(model, gdp_method = method)
+        @test is_solved_and_feasible(model)
+        expected = _affine_truth.(zip(value(x), supports(t)))
+        @test value(y[1]) ≈ expected atol = 1e-6
+    end
+end
+
 @testset "MathOptAIDisjunctiveProgramming" begin
     test_disjunctive_wrapper()
     test_tree_formulation_contents()
     test_tree_matches_mathoptai()
     test_cutting_planes()
     test_affine_leaves()
+    test_infinite_tree()
+    test_infinite_tree_parameter_input()
 end
