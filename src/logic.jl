@@ -223,7 +223,9 @@ function _reformulate_selector(
     func::Vector{JuMP.AbstractJuMPScalar}, 
     set::AbstractCardinalitySet
     ) where {M <: JuMP.AbstractModel}
-    bvrefs = [binary_variable(lvref) for lvref in func[2:end]]
+    aff_type =
+        JuMP.GenericAffExpr{JuMP.value_type(M), JuMP.variable_ref_type(M)}
+    bvrefs = aff_type[binary_variable(lvref) for lvref in func[2:end]]
     c = JuMP.constant(func[1])
     new_set = _vec_to_scalar_set(set)(c)
     init = zero(JuMP.value_type(M))
@@ -235,7 +237,9 @@ function _reformulate_selector(
     func::Vector{<:LogicalVariableRef}, 
     set::AbstractCardinalitySet
     ) where {M <: JuMP.AbstractModel}
-    bvref, bvrefs... = [binary_variable(lvref) for lvref in func]
+    aff_type =
+        JuMP.GenericAffExpr{JuMP.value_type(M), JuMP.variable_ref_type(M)}
+    bvref, bvrefs... = aff_type[binary_variable(lvref) for lvref in func]
     new_set = _vec_to_scalar_set(set)(0)
     init = zero(JuMP.value_type(M))
     cref = JuMP.@constraint(model, sum(bvrefs, init = init) - bvref in new_set)
