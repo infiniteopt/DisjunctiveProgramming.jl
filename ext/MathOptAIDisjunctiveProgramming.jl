@@ -9,8 +9,7 @@ const _MOI = JuMP.MOI
 #                            DISJUNCTIVE PREDICTOR
 ################################################################################
 # A MathOptAI predictor to embed as a GDP disjunction
-struct _Disjunctive{P <: MathOptAI.AbstractPredictor} <:
-    MathOptAI.AbstractPredictor
+struct _Disjunctive{P <: MathOptAI.AbstractPredictor} <: MathOptAI.AbstractPredictor
     predictor::P
 end
 DP.Disjunctive(predictor) = _Disjunctive(predictor)
@@ -25,23 +24,25 @@ function _leaf_paths(
     node::MathOptAI.BinaryDecisionTree,
     path = Pair{Int, _MOI.AbstractScalarSet}[]
     )
-    threshold = Float64(node.feat_value)
-    left = node.feat_id => _MOI.LessThan(threshold - node.atol)
-    right = node.feat_id => _MOI.GreaterThan(threshold)
+    left = node.feat_id => _MOI.LessThan(node.feat_value - node.atol)
+    right = node.feat_id => _MOI.GreaterThan(node.feat_value)
     return vcat(_leaf_paths(node.lhs, [path; left]),
         _leaf_paths(node.rhs, [path; right]))
 end
 
 # Leaf rule as an `Affine`: a constant leaf has zero coefficients
-_affine_leaf(leaf::Real, num_inputs) =
-    MathOptAI.Affine(zeros(1, num_inputs), [float(leaf)])
+function _affine_leaf(leaf::Real, num_inputs)
+    value = float(leaf)
+    return MathOptAI.Affine(zeros(typeof(value), 1, num_inputs), [value])
+end
 _affine_leaf(leaf::MathOptAI.Affine, num_inputs) = leaf
 
 # Bounds of an input read through JuMP, since InfiniteOpt's MathOptAI hook
 # reports none for its variables; an infinite parameter gives its domain
 function _input_bounds(x::JuMP.AbstractVariableRef)
     JuMP.is_fixed(x) && return JuMP.fix_value(x), JuMP.fix_value(x)
-    JuMP.is_binary(x) && return 0.0, 1.0
+    value_type = JuMP.value_type(typeof(x))
+    JuMP.is_binary(x) && return zero(value_type), one(value_type)
     lower = JuMP.has_lower_bound(x) ? JuMP.lower_bound(x) : missing
     upper = JuMP.has_upper_bound(x) ? JuMP.upper_bound(x) : missing
     return lower, upper
