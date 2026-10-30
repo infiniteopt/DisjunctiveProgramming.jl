@@ -27,4 +27,5 @@ include("print.jl")
 include("solve.jl")
 include("extensions/InfiniteDisjunctiveProgramming.jl")
 include("extensions/AbstractGPsDisjunctiveProgramming.jl")
+include("extensions/MathOptAIDisjunctiveProgramming.jl")
 
