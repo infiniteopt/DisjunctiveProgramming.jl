@@ -122,6 +122,22 @@ function test_affine_leaves()
     @test value(y[1]) ≈ -9 && value(x[1]) ≈ -3 && value(x[2]) ≈ 3
 end
 
+# an expression input takes MathOptAI's bounds: 2 x[1] - 1 in [-7, 5]
+function test_expression_input()
+    model = GDPModel(HiGHS.Optimizer)
+    set_silent(model)
+    @variable(model, -3 <= x[1:2] <= 3)
+    inputs = [2 * x[1] - 1, x[2]]
+    y, _ = MathOptAI.add_predictor(model, Disjunctive(_step_tree()), inputs)
+    @test lower_bound(y[1]) == -1 && upper_bound(y[1]) == 1
+    z, _ = MathOptAI.add_predictor(model, Disjunctive(_affine_tree()), inputs)
+    @test lower_bound(z[1]) == -17 && upper_bound(z[1]) == 15
+    @constraint(model, x .== [1.5, 2.0])
+    optimize!(model, gdp_method = BigM())
+    @test is_solved_and_feasible(model)
+    @test value(y[1]) ≈ 1 && value(z[1]) ≈ _affine_truth([2.0, 2.0])
+end
+
 # tree evaluated pointwise: y(t) and the leaf indicators follow x(t), so the
 # active leaf changes across the supports
 function test_infinite_tree()
@@ -169,6 +185,7 @@ end
     test_tree_matches_mathoptai()
     test_cutting_planes()
     test_affine_leaves()
+    test_expression_input()
     test_infinite_tree()
     test_infinite_tree_parameter_input()
 end
