@@ -108,6 +108,16 @@ function JuMP.add_variable(
     v::Union{LogicalVariable, _TaggedLogicalVariable}, 
     name::String = ""
     )
+    return _add_logical_variable(model, v, name)
+end
+
+# Add a logical variable whose binary is `bvref` if given, or a new binary
+function _add_logical_variable(
+    model::JuMP.AbstractModel,
+    v::Union{LogicalVariable, _TaggedLogicalVariable},
+    name::String,
+    bvref::Union{Nothing, JuMP.AbstractVariableRef} = nothing
+    )
     is_gdp_model(model) || error("Can only add logical variables to `GDPModel`s.")
     # add the logical variable
     data = LogicalVariableData(_get_variable(v), name)
@@ -117,7 +127,9 @@ function JuMP.add_variable(
     # add the associated binary variables
     extracted_var = _get_variable(v)
     if isnothing(extracted_var.logical_complement)
-        bvref = _make_binary_variable(model, v, name)
+        if isnothing(bvref)
+            bvref = _make_binary_variable(model, v, name)
+        end
         _add_logical_info(bvref, v)
         jump_expr = bvref
     else

@@ -10,6 +10,8 @@ all previous reformulation variables and constraints are deleted.
 function reformulate_model(model::JuMP.AbstractModel, method::AbstractSolutionMethod = BigM())
     #clear all previous reformulations
     _clear_reformulations(model)
+    #turn DisjunctionSet constraints into disjunctions (permanent)
+    _raise_disjunction_sets(model)
     #reformulate
     _reformulate_disjunctions(model, method)
     _reformulate_logical_constraints(model)

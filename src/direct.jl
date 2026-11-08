@@ -96,3 +96,117 @@ function JuMP.build_constraint(
     )
     return JuMP.VectorConstraint(collect(promote(func...)), set)
 end
+
+################################################################################
+#                        DISJUNCTION SET RAISING
+################################################################################
+# Inverse of the lowering above, for models copied in from MOI: each
+# `DisjunctionSet` becomes a disjunction whose logical variables reuse its bin
+
+function _affine_part(vref::JuMP.AbstractVariableRef)
+    T = JuMP.value_type(typeof(JuMP.owner_model(vref)))
+    return convert(JuMP.GenericAffExpr{T, typeof(vref)}, vref)
+end
+_affine_part(expr::JuMP.GenericAffExpr) = expr
+# A quadratic row makes every entry a `QuadExpr`; one without quadratic terms
+# is still affine
+function _affine_part(expr::JuMP.GenericQuadExpr)
+    isempty(expr.terms) && return expr.aff
+    return error("`DisjunctionSet` indicator `$expr` is not affine.")
+end
+# Any other expression is not affine
+function _affine_part(expr)
+    return error("`DisjunctionSet` indicator `$expr` is not affine.")
+end
+
+# Binary `y` of an indicator
+function _indicator_binary(indicator)
+    aff = _affine_part(indicator)
+    # y -> (y, false), 1 - y -> (y, true)
+    if length(aff.terms) == 1
+        bvref, coef = only(aff.terms)
+        constant = JuMP.constant(aff)
+        isone(coef) && iszero(constant) && return bvref, false
+        isone(-coef) && isone(constant) && return bvref, true
+    end
+    return error("`DisjunctionSet` indicator `$indicator` must be a binary " *
+                 "variable `y` or its complement `1 - y`.")
+end
+
+# Logical variable for an indicator, created on first use and reusing `y`
+# as its binary
+function _indicator_logical_variable(model, indicator_map, indicator)
+    key = _indicator_binary(indicator)
+    haskey(indicator_map, key) && return indicator_map[key]
+    bvref, is_complement = key
+    if is_complement
+        complement_lvref = _indicator_logical_variable(model, indicator_map,
+            bvref)
+        lvar = LogicalVariable(nothing, nothing, complement_lvref)
+        lvref = _add_logical_variable(model, lvar,
+            "not_" * JuMP.name(complement_lvref))
+    else
+        JuMP.is_binary(bvref) || error(
+            "`DisjunctionSet` indicator `$bvref` must be binary.")
+        lvar = LogicalVariable(nothing, nothing, nothing)
+        lvref = _add_logical_variable(model, lvar, JuMP.name(bvref), bvref)
+    end
+    indicator_map[key] = lvref
+    return lvref
+end
+
+# Replace each `DisjunctionSet` by a disjunction (permanently). Parents and
+# children share indicators through `indicator_map`, so order does not matter.
+function _raise_disjunction_sets(model::JuMP.AbstractModel)
+    return
+end
+function _raise_disjunction_sets(model::JuMP.GenericModel)
+    indicator_map = Dict{Tuple{Any, Bool}, LogicalVariableRef}()
+    parent_lvrefs = LogicalVariableRef[]
+    for (F, S) in JuMP.list_of_constraint_types(model)
+        S == DisjunctionSet || continue
+        for cref in JuMP.all_constraints(model, F, S)
+            con = JuMP.constraint_object(cref)
+            func, set = con.func, con.set
+            activation = _affine_part(func[activation_index(set)])
+            is_nested = !(isempty(activation.terms) &&
+                isone(activation.constant))
+            if is_nested
+                parent_lvref = _indicator_logical_variable(
+                    model, indicator_map, activation
+                    )
+                push!(parent_lvrefs, parent_lvref)
+            end
+            indicators = [_indicator_logical_variable(model, indicator_map,
+                indicator) for indicator in func[indicator_indices(set)]]
+            for (disjunct_index, lvref) in enumerate(indicators)
+                disjunct_rows = func[row_indices(set, disjunct_index)]
+                for (row_func, row_set) in
+                    zip(disjunct_rows, set.inner_sets[disjunct_index])
+                    # affine form: reformulations reject a bare variable here
+                    if row_func isa JuMP.AbstractVariableRef
+                        row_func = _affine_part(row_func)
+                    end
+                    JuMP.@constraint(model, row_func in row_set, Disjunct(lvref))
+                end
+            end
+            name = JuMP.name(cref)
+            if is_nested
+                disjunction(model, indicators, Disjunct(parent_lvref), name)
+            else
+                disjunction(model, indicators, name)
+            end
+            JuMP.delete(model, cref)
+        end
+    end
+    # a nested disjunction under a non-disjunct indicator would be dropped
+    disjunct_indicators = Set(lvref
+        for disjunction_data in values(_disjunctions(model))
+        for lvref in disjunction_data.constraint.indicators)
+    for parent_lvref in parent_lvrefs
+        parent_lvref in disjunct_indicators || error(
+            "`DisjunctionSet` activation `$parent_lvref` is not the " *
+            "indicator of any disjunct.")
+    end
+    return
+end
