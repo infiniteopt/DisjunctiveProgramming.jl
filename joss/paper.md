@@ -9,11 +9,11 @@ tags:
 authors:
   - name: Daniel Nguyen
     affiliation: 1
+  # - name: Hector David Perez
+  #   affiliation: "?"
   - name: Joshua Pulsipher
     corresponding: true
     affiliation: 1
-  - name: Hector David Perez
-    affiliation: "?"
 affiliations:
  - name: University of Waterloo
    index: 1
